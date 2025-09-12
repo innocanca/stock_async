@@ -1,0 +1,19 @@
+# 核心依赖包
+tushare>=1.2.89         # Tushare数据接口
+pandas>=1.5.0           # 数据处理
+numpy>=1.24.0          # 数值计算
+PyMySQL>=1.0.2         # MySQL数据库连接
+
+# 可选依赖（用于数据分析和可视化）
+matplotlib>=3.6.0      # 绘图库
+seaborn>=0.12.0        # 统计可视化
+jupyter>=1.0.0         # Jupyter notebook
+openpyxl>=3.0.10       # Excel文件读写
+
+# 开发和测试相关
+pytest>=7.0.0          # 测试框架
+black>=22.0.0          # 代码格式化
+flake8>=5.0.0          # 代码检查
+
+# 日志和配置
+python-dotenv>=0.20.0  # 环境变量管理

@@ -1,0 +1,262 @@
+# -*- coding: utf-8 -*-
+"""
+数据库操作类
+负责MySQL数据库的连接、创建表、数据插入等操作
+"""
+
+import pymysql
+import pandas as pd
+from typing import Optional, List
+import logging
+from config import MYSQL_CONFIG
+
+# 配置日志
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+
+class StockDatabase:
+    """股票数据库操作类"""
+    
+    def __init__(self, config: dict = None):
+        """
+        初始化数据库连接
+        
+        Args:
+            config: 数据库配置字典，默认使用config.py中的配置
+        """
+        self.config = config or MYSQL_CONFIG
+        self.connection = None
+        
+    def connect(self):
+        """连接到MySQL数据库"""
+        try:
+            self.connection = pymysql.connect(**self.config)
+            logger.info("数据库连接成功")
+            return True
+        except Exception as e:
+            logger.error(f"数据库连接失败: {e}")
+            return False
+    
+    def disconnect(self):
+        """断开数据库连接"""
+        if self.connection:
+            self.connection.close()
+            logger.info("数据库连接已断开")
+    
+    def create_database(self):
+        """创建股票数据库（如果不存在）"""
+        try:
+            # 先连接到MySQL服务器（不指定数据库）
+            config_without_db = self.config.copy()
+            database_name = config_without_db.pop('database')
+            
+            connection = pymysql.connect(**config_without_db)
+            with connection.cursor() as cursor:
+                cursor.execute(f"CREATE DATABASE IF NOT EXISTS {database_name} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
+                connection.commit()
+                logger.info(f"数据库 {database_name} 创建成功或已存在")
+            connection.close()
+            return True
+        except Exception as e:
+            logger.error(f"创建数据库失败: {e}")
+            return False
+    
+    def create_daily_table(self):
+        """创建日线数据表"""
+        if not self.connection:
+            logger.error("请先连接数据库")
+            return False
+            
+        try:
+            with self.connection.cursor() as cursor:
+                create_table_sql = """
+                CREATE TABLE IF NOT EXISTS daily_data (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    ts_code VARCHAR(20) NOT NULL COMMENT '股票代码',
+                    trade_date DATE NOT NULL COMMENT '交易日期',
+                    open DECIMAL(10,2) COMMENT '开盘价',
+                    high DECIMAL(10,2) COMMENT '最高价',
+                    low DECIMAL(10,2) COMMENT '最低价',
+                    close DECIMAL(10,2) COMMENT '收盘价',
+                    pre_close DECIMAL(10,2) COMMENT '昨收价',
+                    change_pct DECIMAL(8,4) COMMENT '涨跌幅(%)',
+                    change_amount DECIMAL(10,2) COMMENT '涨跌额',
+                    vol DECIMAL(15,2) COMMENT '成交量(手)',
+                    amount DECIMAL(20,2) COMMENT '成交额(千元)',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+                    UNIQUE KEY unique_stock_date (ts_code, trade_date),
+                    INDEX idx_ts_code (ts_code),
+                    INDEX idx_trade_date (trade_date)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='股票日线数据表';
+                """
+                cursor.execute(create_table_sql)
+                self.connection.commit()
+                logger.info("日线数据表创建成功")
+                return True
+        except Exception as e:
+            logger.error(f"创建日线数据表失败: {e}")
+            return False
+    
+    def insert_daily_data(self, df: pd.DataFrame):
+        """
+        批量插入日线数据
+        
+        Args:
+            df: 包含日线数据的DataFrame
+        
+        Returns:
+            bool: 插入是否成功
+        """
+        if not self.connection:
+            logger.error("请先连接数据库")
+            return False
+        
+        if df.empty:
+            logger.warning("数据为空，跳过插入")
+            return True
+            
+        try:
+            with self.connection.cursor() as cursor:
+                # 准备插入SQL语句
+                insert_sql = """
+                INSERT INTO daily_data 
+                (ts_code, trade_date, open, high, low, close, pre_close, 
+                 change_pct, change_amount, vol, amount)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                open=VALUES(open), high=VALUES(high), low=VALUES(low), 
+                close=VALUES(close), pre_close=VALUES(pre_close),
+                change_pct=VALUES(change_pct), change_amount=VALUES(change_amount),
+                vol=VALUES(vol), amount=VALUES(amount), updated_at=CURRENT_TIMESTAMP
+                """
+                
+                # 准备数据
+                data_list = []
+                for _, row in df.iterrows():
+                    data_list.append((
+                        row['ts_code'],
+                        row['trade_date'],
+                        row['open'] if pd.notna(row['open']) else None,
+                        row['high'] if pd.notna(row['high']) else None,
+                        row['low'] if pd.notna(row['low']) else None,
+                        row['close'] if pd.notna(row['close']) else None,
+                        row['pre_close'] if pd.notna(row['pre_close']) else None,
+                        row['pct_chg'] if pd.notna(row['pct_chg']) else None,
+                        row['change'] if pd.notna(row['change']) else None,
+                        row['vol'] if pd.notna(row['vol']) else None,
+                        row['amount'] if pd.notna(row['amount']) else None,
+                    ))
+                
+                # 批量执行插入
+                cursor.executemany(insert_sql, data_list)
+                self.connection.commit()
+                
+                logger.info(f"成功插入/更新 {len(data_list)} 条日线数据记录")
+                return True
+                
+        except Exception as e:
+            logger.error(f"插入日线数据失败: {e}")
+            self.connection.rollback()
+            return False
+    
+    def query_data(self, ts_code: str = None, start_date: str = None, 
+                   end_date: str = None, limit: int = None) -> Optional[pd.DataFrame]:
+        """
+        查询股票数据
+        
+        Args:
+            ts_code: 股票代码
+            start_date: 开始日期
+            end_date: 结束日期
+            limit: 限制返回条数
+            
+        Returns:
+            pd.DataFrame: 查询结果
+        """
+        if not self.connection:
+            logger.error("请先连接数据库")
+            return None
+            
+        try:
+            conditions = []
+            params = []
+            
+            if ts_code:
+                conditions.append("ts_code = %s")
+                params.append(ts_code)
+            
+            if start_date:
+                conditions.append("trade_date >= %s")
+                params.append(start_date)
+                
+            if end_date:
+                conditions.append("trade_date <= %s")
+                params.append(end_date)
+            
+            where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
+            limit_clause = f"LIMIT {limit}" if limit else ""
+            
+            query_sql = f"""
+            SELECT ts_code, trade_date, open, high, low, close, pre_close,
+                   change_pct, change_amount, vol, amount, created_at, updated_at
+            FROM daily_data
+            {where_clause}
+            ORDER BY trade_date DESC, ts_code
+            {limit_clause}
+            """
+            
+            df = pd.read_sql(query_sql, self.connection, params=params)
+            logger.info(f"查询到 {len(df)} 条记录")
+            return df
+            
+        except Exception as e:
+            logger.error(f"查询数据失败: {e}")
+            return None
+    
+    def get_stats(self) -> dict:
+        """获取数据库统计信息"""
+        if not self.connection:
+            logger.error("请先连接数据库")
+            return {}
+            
+        try:
+            with self.connection.cursor() as cursor:
+                stats = {}
+                
+                # 总记录数
+                cursor.execute("SELECT COUNT(*) as total_records FROM daily_data")
+                stats['total_records'] = cursor.fetchone()[0]
+                
+                # 股票数量
+                cursor.execute("SELECT COUNT(DISTINCT ts_code) as stock_count FROM daily_data")
+                stats['stock_count'] = cursor.fetchone()[0]
+                
+                # 日期范围
+                cursor.execute("SELECT MIN(trade_date) as min_date, MAX(trade_date) as max_date FROM daily_data")
+                result = cursor.fetchone()
+                stats['date_range'] = {
+                    'min_date': result[0],
+                    'max_date': result[1]
+                }
+                
+                # 最新更新时间
+                cursor.execute("SELECT MAX(updated_at) as last_update FROM daily_data")
+                stats['last_update'] = cursor.fetchone()[0]
+                
+                logger.info("统计信息获取成功")
+                return stats
+                
+        except Exception as e:
+            logger.error(f"获取统计信息失败: {e}")
+            return {}
+    
+    def __enter__(self):
+        """上下文管理器入口"""
+        self.connect()
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """上下文管理器出口"""
+        self.disconnect()
