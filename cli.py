@@ -70,6 +70,10 @@ class StockDataCLI:
                            help='使用全市场模式：通过交易日循环获取（推荐用于大批量历史数据）')
         parser.add_argument('--exchange', choices=['SSE', 'SZSE'], default='SSE',
                            help='交易所选择，用于交易日历（SSE上交所，SZSE深交所，默认SSE）')
+        parser.add_argument('--batch-days', type=int, default=10,
+                           help='全市场模式下每批插入的交易日数量（默认10天）')
+        parser.add_argument('--use-batch-insert', action='store_true', default=True,
+                           help='使用分批插入优化性能（默认开启，推荐大数据量使用）')
         
         # 配置文件相关
         parser.add_argument('--config', default=DEFAULT_CONFIG_MODE,
@@ -333,6 +337,79 @@ class StockDataCLI:
         logger.info(f"🏢 交易所: {args.exchange}")
         logger.info(f"⏱️ API延迟: {args.delay}秒")
         
+        # 检查是否使用分批插入
+        use_batch_insert = getattr(args, 'use_batch_insert', True)
+        batch_days = getattr(args, 'batch_days', 10)
+        
+        if use_batch_insert:
+            logger.info(f"💾 使用分批插入模式，每 {batch_days} 个交易日插入一次")
+            return self.handle_batch_insert_mode(args, start_date, end_date, batch_days)
+        else:
+            logger.info(f"💾 使用一次性插入模式（不推荐大数据量使用）")
+            return self.handle_single_insert_mode(args, start_date, end_date)
+    
+    def handle_batch_insert_mode(self, args: argparse.Namespace, start_date: str, end_date: str, batch_days: int) -> bool:
+        """
+        处理分批插入模式（推荐用于大数据量）
+        
+        Args:
+            args: 命令行参数
+            start_date: 开始日期
+            end_date: 结束日期
+            batch_days: 每批处理的交易日数量
+            
+        Returns:
+            bool: 是否成功
+        """
+        # 预估时间
+        estimated_time = self.fetcher.estimate_market_data_time(start_date, end_date, args.delay)
+        logger.info(f"⏰ 预估总耗时: {estimated_time}")
+        
+        # 使用分批插入方法
+        with self.db:
+            stats = self.fetcher.get_all_market_data_by_dates_with_batch_insert(
+                start_date=start_date,
+                end_date=end_date,
+                delay=args.delay,
+                exchange=args.exchange,
+                db_instance=self.db,
+                batch_days=batch_days
+            )
+        
+        if not stats or stats.get('total_records', 0) == 0:
+            logger.error("❌ 全市场数据获取和插入失败")
+            return False
+        
+        # 显示最终统计信息
+        logger.info("✅ 全市场数据获取和插入完成！")
+        
+        # 获取数据库最新统计
+        with self.db:
+            db_stats = self.db.get_stats()
+            logger.info(f"📊 数据库当前状态:")
+            logger.info(f"   总记录数: {db_stats.get('total_records', 0):,}")
+            logger.info(f"   股票数量: {db_stats.get('stock_count', 0)}")
+            if db_stats.get('date_range'):
+                logger.info(f"   数据范围: {db_stats['date_range']['min_date']} 到 {db_stats['date_range']['max_date']}")
+        
+        # 判断成功率
+        success_rate = stats.get('batch_insert_success', 0) / max(stats.get('total_batches', 1), 1)
+        return success_rate >= 0.8  # 80%以上成功率认为是成功的
+    
+    def handle_single_insert_mode(self, args: argparse.Namespace, start_date: str, end_date: str) -> bool:
+        """
+        处理一次性插入模式（不推荐大数据量使用）
+        
+        Args:
+            args: 命令行参数
+            start_date: 开始日期
+            end_date: 结束日期
+            
+        Returns:
+            bool: 是否成功
+        """
+        logger.warning("⚠️ 使用一次性插入模式，大数据量可能导致性能问题")
+        
         # 预估时间
         estimated_time = self.fetcher.estimate_market_data_time(start_date, end_date, args.delay)
         logger.info(f"⏰ 预估耗时: {estimated_time}")
@@ -349,8 +426,10 @@ class StockDataCLI:
             logger.error("未获取到任何全市场数据")
             return False
         
+        logger.info(f"📊 准备插入 {len(df):,} 条记录到数据库...")
+        
         # 存储到数据库
-        logger.info("正在将全市场数据存储到MySQL数据库...")
+        logger.info("💾 开始一次性插入全市场数据到MySQL数据库...")
         with self.db:
             success = self.db.insert_daily_data(df)
             if success:

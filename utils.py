@@ -102,9 +102,12 @@ def print_current_config(args: argparse.Namespace):
         ('股票代码', '所有主板股票' if not args.codes else f"{len(args.codes)}只指定股票"),
         ('日期范围', f"{getattr(args, 'start_date', 'N/A')} 到 {getattr(args, 'end_date', '今天')}"),
         ('股票限制', f"{args.limit}只" if args.limit else '不限制'),
+        ('获取模式', args.mode),
         ('批次大小', f"{args.batch_size}只"),
         ('API延迟', f"{args.delay}秒"),
-        ('获取模式', args.mode),
+        ('全市场模式', '开启' if getattr(args, 'market_mode', False) else '关闭'),
+        ('分批插入', f"开启(每{getattr(args, 'batch_days', 10)}天)" if getattr(args, 'use_batch_insert', False) else '关闭'),
+        ('交易所', getattr(args, 'exchange', 'SSE')),
         ('特殊操作', get_special_operations(args))
     ]
     

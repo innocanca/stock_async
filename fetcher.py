@@ -480,7 +480,7 @@ class StockDataFetcher:
         if not all_data:
             logger.error("未获取到任何交易日数据")
             return pd.DataFrame()
-        
+
         # 合并所有数据
         combined_df = pd.concat(all_data, ignore_index=True)
         total_records = len(combined_df)
@@ -493,6 +493,138 @@ class StockDataFetcher:
         logger.info(f"   ✅ 成功率: {successful_days/total_days*100:.1f}%")
         
         return combined_df
+    
+    def get_all_market_data_by_dates_with_batch_insert(self, start_date: str, end_date: str, 
+                                                      delay: float = 0.5, exchange: str = 'SSE',
+                                                      db_instance=None, batch_days: int = 10) -> dict:
+        """
+        通过交易日循环获取全市场历史数据，并分批插入数据库（推荐用于大批量数据）
+        
+        优势：
+        - 按交易日批量插入，避免内存溢出
+        - 实时显示插入进度
+        - 支持断点续传（避免重复插入）
+        - 更好的性能和稳定性
+        
+        Args:
+            start_date: 开始日期（YYYYMMDD格式）
+            end_date: 结束日期（YYYYMMDD格式）
+            delay: 每次请求延迟（秒）
+            exchange: 交易所
+            db_instance: 数据库实例
+            batch_days: 每批处理的交易日数量
+            
+        Returns:
+            dict: 包含统计信息的字典
+        """
+        import time
+        
+        if db_instance is None:
+            logger.error("需要提供数据库实例进行分批插入")
+            return {}
+        
+        # 获取交易日历
+        trade_cal = self.get_trade_calendar(start_date, end_date, exchange)
+        if trade_cal is None or trade_cal.empty:
+            logger.error("无法获取交易日历，退出数据获取")
+            return {}
+        
+        trading_days = trade_cal['cal_date'].values
+        total_days = len(trading_days)
+        logger.info(f"🚀 开始全市场数据获取和分批插入，共 {total_days} 个交易日")
+        logger.info(f"📦 分批设置: 每 {batch_days} 个交易日插入一次数据库")
+        
+        # 统计信息
+        stats = {
+            'total_trading_days': total_days,
+            'successful_days': 0,
+            'total_records': 0,
+            'total_batches': 0,
+            'failed_days': [],
+            'batch_insert_success': 0,
+            'batch_insert_failed': 0
+        }
+        
+        current_batch_data = []
+        batch_trading_days = []
+        
+        for i, trade_date in enumerate(trading_days, 1):
+            try:
+                logger.info(f"📅 正在获取 {trade_date} 的全市场数据 ({i}/{total_days})")
+                
+                # 使用重试机制获取数据
+                df = self.get_daily_with_retry(trade_date=trade_date)
+                
+                if df is not None and not df.empty:
+                    current_batch_data.append(df)
+                    batch_trading_days.append(trade_date)
+                    stats['successful_days'] += 1
+                    logger.info(f"✅ 成功获取 {trade_date} 的 {len(df)} 只股票数据")
+                else:
+                    logger.warning(f"⚠️ 未获取到 {trade_date} 的数据")
+                    stats['failed_days'].append(trade_date)
+                
+                # API调用延迟
+                time.sleep(delay)
+                
+                # 检查是否需要插入数据库
+                should_insert = (
+                    len(current_batch_data) >= batch_days or  # 达到批次大小
+                    i == total_days or  # 是最后一个交易日
+                    len(current_batch_data) >= 20  # 数据量较大时提前插入
+                )
+                
+                if should_insert and current_batch_data:
+                    # 合并当前批次数据
+                    batch_df = pd.concat(current_batch_data, ignore_index=True)
+                    batch_records = len(batch_df)
+                    
+                    logger.info(f"💾 开始插入第 {stats['total_batches'] + 1} 批数据...")
+                    logger.info(f"   📊 本批数据: {batch_records:,} 条记录")
+                    logger.info(f"   📅 交易日: {batch_trading_days[0]} 到 {batch_trading_days[-1]}")
+                    
+                    # 插入数据库
+                    insert_success = db_instance.insert_daily_data(batch_df)
+                    
+                    if insert_success:
+                        stats['total_batches'] += 1
+                        stats['total_records'] += batch_records
+                        stats['batch_insert_success'] += 1
+                        logger.info(f"✅ 第 {stats['total_batches']} 批数据插入成功！")
+                        logger.info(f"   📈 累计插入: {stats['total_records']:,} 条记录")
+                    else:
+                        stats['batch_insert_failed'] += 1
+                        logger.error(f"❌ 第 {stats['total_batches'] + 1} 批数据插入失败")
+                    
+                    # 清空当前批次数据，释放内存
+                    current_batch_data = []
+                    batch_trading_days = []
+                
+                # 显示进度
+                if i % 10 == 0 or i == total_days:
+                    success_rate = stats['successful_days'] / i * 100
+                    logger.info(f"📊 进度: {i}/{total_days} ({i/total_days*100:.1f}%), "
+                              f"成功获取: {stats['successful_days']}天 ({success_rate:.1f}%)")
+                    logger.info(f"   💾 已插入: {stats['total_records']:,} 条记录")
+                
+            except Exception as e:
+                logger.error(f"❌ 获取 {trade_date} 数据时发生错误: {e}")
+                stats['failed_days'].append(trade_date)
+                continue
+        
+        # 最终统计
+        logger.info(f"🎉 全市场数据获取和插入完成！")
+        logger.info(f"   📅 总交易日: {stats['total_trading_days']} 天")
+        logger.info(f"   ✅ 成功获取: {stats['successful_days']} 天")
+        logger.info(f"   📊 总插入记录: {stats['total_records']:,} 条")
+        logger.info(f"   📦 插入批次: {stats['total_batches']} 次")
+        logger.info(f"   💾 插入成功率: {stats['batch_insert_success']}/{stats['total_batches']}")
+        
+        if stats['failed_days']:
+            logger.warning(f"   ⚠️ 失败的交易日: {len(stats['failed_days'])} 天")
+            logger.debug(f"   失败日期: {stats['failed_days']}")
+        
+        return stats
     
     def estimate_market_data_time(self, start_date: str, end_date: str, delay: float = 0.5) -> str:
         """
