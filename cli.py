@@ -83,6 +83,12 @@ class StockDataCLI:
         parser.add_argument('--show-config', action='store_true',
                            help='显示当前配置并退出')
         
+        # 定时同步相关
+        parser.add_argument('--sync-today', action='store_true',
+                           help='同步今天的主板数据到数据库')
+        parser.add_argument('--install-cron', action='store_true',
+                           help='显示cron任务安装配置（每天自动同步）')
+        
         return parser
     
     def parse_and_merge_args(self, args=None) -> argparse.Namespace:
@@ -497,6 +503,140 @@ class StockDataCLI:
                 logger.error("❌ 数据存储失败")
                 return False
     
+    def handle_sync_today(self, args: argparse.Namespace) -> Optional[bool]:
+        """
+        处理同步今天数据的请求
+        
+        Args:
+            args: 命令行参数
+            
+        Returns:
+            Optional[bool]: None表示继续执行，True表示成功，False表示失败
+        """
+        if not getattr(args, 'sync_today', False):
+            return None
+        
+        logger.info("🔄 开始同步今天的主板数据...")
+        
+        self.initialize_fetcher()
+        
+        # 获取今天的日期
+        from datetime import datetime
+        today = datetime.now().strftime('%Y%m%d')
+        logger.info(f"📅 同步日期: {today}")
+        
+        # 尝试获取今日数据，如果今天不是交易日，获取最新交易日数据
+        df = self.fetcher.get_daily_by_date(today)
+        
+        if df is None or df.empty:
+            logger.info(f"今天({today})可能不是交易日，尝试获取最新交易日数据...")
+            
+            # 获取主板股票列表
+            stock_codes = self.fetcher.get_main_board_stocks()
+            if not stock_codes:
+                logger.error("无法获取主板股票列表")
+                return False
+            
+            df = self.fetcher.get_latest_trading_day_data(stock_codes)
+        
+        if df is None or df.empty:
+            logger.error("❌ 无法获取今日或最新交易日数据")
+            return False
+        
+        # 获取交易日期
+        if 'trade_date' in df.columns and not df.empty:
+            actual_date = df['trade_date'].iloc[0].strftime('%Y-%m-%d')
+            logger.info(f"📈 实际数据日期: {actual_date}")
+        
+        logger.info(f"✅ 成功获取 {len(df)} 条主板数据")
+        
+        # 插入数据库
+        with self.db:
+            success = self.db.insert_daily_data(df)
+            if success:
+                logger.info("✅ 今日主板数据同步成功！")
+                
+                # 显示统计信息
+                stats = self.db.get_stats()
+                logger.info(f"📊 数据库总记录数: {stats.get('total_records', 0):,}")
+                logger.info(f"📈 涉及股票数量: {stats.get('stock_count', 0)}")
+                return True
+            else:
+                logger.error("❌ 今日数据插入数据库失败")
+                return False
+    
+    def handle_install_cron(self, args: argparse.Namespace) -> Optional[bool]:
+        """
+        处理安装cron任务的请求
+        
+        Args:
+            args: 命令行参数
+            
+        Returns:
+            Optional[bool]: None表示继续执行，True表示显示完成
+        """
+        if not getattr(args, 'install_cron', False):
+            return None
+        
+        import os
+        import sys
+        
+        # 获取脚本路径
+        script_path = os.path.abspath(sys.argv[0])
+        script_dir = os.path.dirname(script_path)
+        python_path = sys.executable
+        log_file = os.path.join(script_dir, "daily_sync.log")
+        
+        print("🔧 Linux Cron 定时任务配置")
+        print("=" * 80)
+        print("每天18:00自动同步当天的A股主板数据到MySQL")
+        print()
+        
+        # cron任务配置（每天18:00执行，只在工作日）
+        cron_config = f"0 18 * * 1-5 cd {script_dir} && {python_path} {script_path} --sync-today >> {log_file} 2>&1"
+        
+        print("📋 Cron任务配置：")
+        print("-" * 80)
+        print(cron_config)
+        print("-" * 80)
+        
+        print("\\n📝 安装步骤：")
+        steps = [
+            "1. 复制上面的cron配置",
+            "2. 运行命令: crontab -e", 
+            "3. 将配置粘贴到文件末尾",
+            "4. 保存并退出编辑器（通常是Ctrl+X, Y, Enter）",
+            "5. 运行命令: crontab -l （验证任务已添加）"
+        ]
+        
+        for step in steps:
+            print(f"   {step}")
+        
+        print("\\n💡 配置说明：")
+        print(f"   ⏰ 执行时间: 每天 18:00（交易结束后）")
+        print(f"   📅 执行日期: 周一到周五（工作日）")
+        print(f"   📁 工作目录: {script_dir}")
+        print(f"   📜 日志文件: {log_file}")
+        print(f"   🐍 Python路径: {python_path}")
+        print(f"   📊 数据范围: A股主板所有股票")
+        
+        print("\\n🔍 监控命令：")
+        monitoring_commands = [
+            ("查看cron任务", "crontab -l"),
+            ("查看同步日志", f"tail -f {log_file}"),
+            ("手动测试同步", f"cd {script_dir} && python {script_path} --sync-today"),
+            ("查看数据库状态", f"cd {script_dir} && python {script_path} --stats"),
+            ("删除cron任务", "crontab -e （然后删除对应行）")
+        ]
+        
+        for desc, cmd in monitoring_commands:
+            print(f"   {desc:<15}: {cmd}")
+        
+        print("\\n✅ 设置完成后，系统将每天18:00自动同步当天的A股主板数据！")
+        print("🔄 数据会自动去重，重复运行不会产生重复数据")
+        
+        return True
+    
     def run(self, args=None) -> int:
         """
         运行CLI程序
@@ -514,6 +654,16 @@ class StockDataCLI:
             # 如果只是显示配置，则打印并退出
             if self.handle_show_config(parsed_args):
                 return 0
+            
+            # 处理cron安装请求
+            cron_result = self.handle_install_cron(parsed_args)
+            if cron_result is not None:
+                return 0 if cron_result else 1
+            
+            # 处理今日同步请求
+            sync_result = self.handle_sync_today(parsed_args)
+            if sync_result is not None:
+                return 0 if sync_result else 1
             
             # 显示当前配置
             print_current_config(parsed_args)
