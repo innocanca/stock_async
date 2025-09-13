@@ -3,3 +3,4 @@ config.py
 *.pyc
 *demo.py
 example.py
+test*.*

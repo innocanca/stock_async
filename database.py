@@ -99,6 +99,39 @@ class StockDatabase:
             logger.error(f"创建日线数据表失败: {e}")
             return False
     
+    def create_stock_basic_table(self):
+        """创建股票基础信息表"""
+        if not self.connection:
+            logger.error("请先连接数据库")
+            return False
+            
+        try:
+            with self.connection.cursor() as cursor:
+                create_table_sql = """
+                CREATE TABLE IF NOT EXISTS stock_basic (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    ts_code VARCHAR(20) NOT NULL UNIQUE COMMENT '股票代码',
+                    symbol VARCHAR(10) COMMENT '股票简称代码',
+                    name VARCHAR(20) NOT NULL COMMENT '股票名称',
+                    area VARCHAR(20) COMMENT '地区',
+                    industry VARCHAR(50) COMMENT '行业',
+                    market VARCHAR(20) COMMENT '市场类型（主板/创业板等）',
+                    list_date DATE COMMENT '上市日期',
+                    list_status VARCHAR(5) COMMENT '上市状态',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+                    INDEX idx_ts_code (ts_code),
+                    INDEX idx_name (name)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='股票基础信息表';
+                """
+                cursor.execute(create_table_sql)
+                self.connection.commit()
+                logger.info("股票基础信息表创建成功")
+                return True
+        except Exception as e:
+            logger.error(f"创建股票基础信息表失败: {e}")
+            return False
+    
     def insert_daily_data(self, df: pd.DataFrame):
         """
         批量插入日线数据
@@ -161,6 +194,63 @@ class StockDatabase:
             self.connection.rollback()
             return False
     
+    def insert_stock_basic(self, df: pd.DataFrame):
+        """
+        批量插入股票基础信息
+        
+        Args:
+            df: 包含股票基础信息的DataFrame
+            
+        Returns:
+            bool: 插入是否成功
+        """
+        if not self.connection:
+            logger.error("请先连接数据库")
+            return False
+        
+        if df.empty:
+            logger.warning("股票基础信息为空，跳过插入")
+            return True
+            
+        try:
+            with self.connection.cursor() as cursor:
+                # 准备插入SQL语句
+                insert_sql = """
+                INSERT INTO stock_basic 
+                (ts_code, symbol, name, area, industry, market, list_date, list_status)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                name=VALUES(name), area=VALUES(area), industry=VALUES(industry),
+                market=VALUES(market), list_date=VALUES(list_date), 
+                list_status=VALUES(list_status), updated_at=CURRENT_TIMESTAMP
+                """
+                
+                # 准备数据
+                data_list = []
+                for _, row in df.iterrows():
+                    data_list.append((
+                        row['ts_code'],
+                        row['symbol'] if pd.notna(row['symbol']) else None,
+                        row['name'] if pd.notna(row['name']) else None,
+                        row['area'] if pd.notna(row['area']) else None,
+                        row['industry'] if pd.notna(row['industry']) else None,
+                        row['market'] if pd.notna(row['market']) else None,
+                        row['list_date'] if pd.notna(row['list_date']) else None,
+                        row['list_status'] if pd.notna(row['list_status']) else None,
+                    ))
+                
+                # 批量执行插入
+                cursor.executemany(insert_sql, data_list)
+                self.connection.commit()
+                
+                logger.info(f"成功插入/更新 {len(data_list)} 条股票基础信息记录")
+                return True
+                
+        except Exception as e:
+            logger.error(f"插入股票基础信息失败: {e}")
+            self.connection.rollback()
+            return False
+    
     def query_data(self, ts_code: str = None, start_date: str = None, 
                    end_date: str = None, limit: int = None) -> Optional[pd.DataFrame]:
         """
@@ -215,6 +305,112 @@ class StockDatabase:
             logger.error(f"查询数据失败: {e}")
             return None
     
+    def get_limit_up_stocks(self, trade_date: str = None, min_pct: float = None) -> Optional[pd.DataFrame]:
+        """
+        查询涨停股票
+        
+        Args:
+            trade_date: 指定交易日期，如果为None则查询最近交易日
+            min_pct: 最小涨跌幅阈值，如果为None则自动判断涨停
+            
+        Returns:
+            pd.DataFrame: 涨停股票数据（包含股票名称）
+        """
+        if not self.connection:
+            logger.error("请先连接数据库")
+            return None
+            
+        try:
+            with self.connection.cursor() as cursor:
+                # 如果未指定日期，则获取最近交易日
+                if not trade_date:
+                    cursor.execute("SELECT MAX(trade_date) FROM daily_data")
+                    result = cursor.fetchone()
+                    if not result or not result[0]:
+                        logger.warning("数据库中没有数据")
+                        return None
+                    trade_date = result[0].strftime('%Y-%m-%d')
+                
+                # 构建查询条件
+                if min_pct is None:
+                    # 自动判断涨停：涨幅 >= 9.8% 且 收盘价 = 最高价（或接近最高价）
+                    where_condition = """
+                    WHERE d.trade_date = %s 
+                    AND d.change_pct >= 9.8 
+                    AND ABS(d.close - d.high) / d.high <= 0.003
+                    AND d.vol > 0
+                    """
+                    params = [trade_date]
+                    logger.info(f"使用自动涨停判断条件：涨幅>=9.8%且收盘价接近最高价")
+                else:
+                    where_condition = """
+                    WHERE d.trade_date = %s 
+                    AND d.change_pct >= %s
+                    """
+                    params = [trade_date, min_pct]
+                    logger.info(f"使用自定义涨幅阈值：>={min_pct}%")
+                
+                # 联表查询股票基础信息，获取股票名称
+                query_sql = f"""
+                SELECT d.ts_code, d.trade_date, d.open, d.high, d.low, d.close, d.pre_close,
+                       d.change_pct, d.change_amount, d.vol, d.amount,
+                       COALESCE(s.name, '未知') as name,
+                       COALESCE(s.industry, '未知') as industry,
+                       COALESCE(s.market, '未知') as market
+                FROM daily_data d
+                LEFT JOIN stock_basic s ON d.ts_code = s.ts_code
+                {where_condition}
+                ORDER BY d.amount DESC, d.change_pct DESC
+                """
+                
+                df = pd.read_sql(query_sql, self.connection, params=params)
+                
+                if not df.empty:
+                    # 进一步筛选真正的涨停股票（去除ST股票等特殊情况）
+                    # ST股票涨停幅度通常是5%
+                    st_stocks = df[df['name'].str.contains('ST|退', na=False)]
+                    normal_stocks = df[~df['name'].str.contains('ST|退', na=False)]
+                    
+                    # 对于ST股票，使用较低的涨停阈值
+                    if not st_stocks.empty and min_pct is None:
+                        st_limit_up = st_stocks[st_stocks['change_pct'] >= 4.8]
+                        normal_limit_up = normal_stocks[normal_stocks['change_pct'] >= 9.8]
+                        df = pd.concat([normal_limit_up, st_limit_up], ignore_index=True)
+                        df = df.sort_values(['amount', 'change_pct'], ascending=[False, False])
+                    
+                    logger.info(f"查询到 {len(df)} 只涨停股票 (日期: {trade_date})")
+                    
+                    # 打印前几只股票用于调试
+                    if len(df) > 0:
+                        logger.info("涨停股票示例：")
+                        for idx, row in df.head(3).iterrows():
+                            logger.info(f"  {row['name']}({row['ts_code']}) 涨幅:{row['change_pct']:.2f}%")
+                else:
+                    logger.info(f"未查询到涨停股票 (日期: {trade_date})")
+                
+                return df
+                
+        except Exception as e:
+            logger.error(f"查询涨停股票失败: {e}")
+            return None
+    
+    def get_latest_trading_date(self) -> Optional[str]:
+        """获取最近交易日期"""
+        if not self.connection:
+            logger.error("请先连接数据库")
+            return None
+            
+        try:
+            with self.connection.cursor() as cursor:
+                cursor.execute("SELECT MAX(trade_date) FROM daily_data")
+                result = cursor.fetchone()
+                if result and result[0]:
+                    return result[0].strftime('%Y-%m-%d')
+                return None
+        except Exception as e:
+            logger.error(f"获取最近交易日期失败: {e}")
+            return None
+
     def get_stats(self) -> dict:
         """获取数据库统计信息"""
         if not self.connection:
