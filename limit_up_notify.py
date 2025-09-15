@@ -82,7 +82,7 @@ def create_limit_up_markdown(df, trade_date: str) -> str:
         stock_code = format_stock_code(row['ts_code'])
         stock_name = row.get('name', '未知')  # 获取股票名称
         industry = row.get('industry', '未知')  # 获取行业
-        amount = row['amount'] / 10000  # 转换为亿元（原单位：千元）
+        amount = row['amount'] / 100000  # 转换为亿元（原单位：千元）
         
         # 截断过长的股票名称和行业名称
         if len(stock_name) > 8:
