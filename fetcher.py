@@ -656,3 +656,414 @@ class StockDataFetcher:
             return f"{total_seconds/60:.1f}分钟"
         else:
             return f"{total_seconds/3600:.1f}小时"
+    
+    def get_ths_index(self, ts_code: str = None, exchange: str = None, 
+                     index_type: str = None) -> Optional[pd.DataFrame]:
+        """
+        获取同花顺概念和行业指数数据
+        
+        根据Tushare文档，需要5000积分权限，单次最大返回5000行数据
+        
+        Args:
+            ts_code: 指数代码
+            exchange: 市场类型 A-a股 HK-港股 US-美股
+            index_type: 指数类型 N-概念指数 I-行业指数 R-地域指数 S-同花顺特色指数 
+                       ST-同花顺风格指数 TH-同花顺主题指数 BB-同花顺宽基指数
+            
+        Returns:
+            pd.DataFrame: 同花顺指数数据
+        """
+        try:
+            logger.info("正在获取同花顺概念和行业指数数据...")
+            
+            # 构建参数字典
+            params = {}
+            if ts_code:
+                params['ts_code'] = ts_code
+            if exchange:
+                params['exchange'] = exchange
+            if index_type:
+                params['type'] = index_type
+            
+            # 调用Tushare API
+            df = self.pro.ths_index(**params)
+            
+            if df is None or df.empty:
+                logger.warning("未获取到同花顺指数数据")
+                return None
+            
+            # 数据预处理
+            if 'list_date' in df.columns:
+                # 将list_date转换为日期格式
+                df['list_date'] = pd.to_datetime(df['list_date'], format='%Y%m%d', errors='coerce')
+            
+            logger.info(f"成功获取 {len(df)} 条同花顺指数数据")
+            
+            # 显示统计信息
+            if 'type' in df.columns:
+                type_counts = df['type'].value_counts()
+                logger.info("指数类型分布：")
+                for idx_type, count in type_counts.items():
+                    type_name = self._get_index_type_name(idx_type)
+                    logger.info(f"  {type_name}({idx_type}): {count}个")
+            
+            # 显示前几个指数信息
+            logger.info("部分指数示例：")
+            for i, (_, row) in enumerate(df.head(3).iterrows()):
+                type_name = self._get_index_type_name(row.get('type', ''))
+                logger.info(f"  {row.get('name', 'N/A')}({row.get('ts_code', 'N/A')}) - {type_name} - 成分股:{row.get('count', 'N/A')}个")
+                
+            return df
+            
+        except Exception as e:
+            logger.error(f"获取同花顺概念指数失败: {e}")
+            
+            # 检查是否是权限问题
+            if "权限" in str(e) or "积分" in str(e) or "permission" in str(e).lower():
+                logger.error("可能是权限不足，需要5000积分才能调用ths_index接口")
+                logger.info("请检查您的Tushare账户积分或升级账户权限")
+            
+            return None
+    
+    def _get_index_type_name(self, index_type: str) -> str:
+        """
+        获取指数类型中文名称
+        
+        Args:
+            index_type: 指数类型代码
+            
+        Returns:
+            str: 中文名称
+        """
+        type_mapping = {
+            'N': '概念指数',
+            'I': '行业指数', 
+            'R': '地域指数',
+            'S': '同花顺特色指数',
+            'ST': '同花顺风格指数',
+            'TH': '同花顺主题指数',
+            'BB': '同花顺宽基指数'
+        }
+        return type_mapping.get(index_type, '未知类型')
+    
+    def get_all_ths_index_data(self) -> Optional[pd.DataFrame]:
+        """
+        获取所有同花顺概念和行业指数数据（分类型获取）
+        
+        由于API单次调用限制5000条，这里分类型获取以确保获取完整数据
+        
+        Returns:
+            pd.DataFrame: 所有指数数据
+        """
+        logger.info("🚀 开始获取所有同花顺概念和行业指数数据...")
+        
+        # 定义要获取的指数类型
+        index_types = ['N', 'I', 'R', 'S', 'ST', 'TH', 'BB']
+        all_data = []
+        
+        for index_type in index_types:
+            try:
+                type_name = self._get_index_type_name(index_type)
+                logger.info(f"正在获取{type_name}({index_type})...")
+                
+                df = self.get_ths_index(index_type=index_type)
+                
+                if df is not None and not df.empty:
+                    all_data.append(df)
+                    logger.info(f"✅ 成功获取{type_name} {len(df)} 个指数")
+                else:
+                    logger.warning(f"⚠️ 未获取到{type_name}数据")
+                
+                # API调用延迟
+                import time
+                time.sleep(0.5)
+                
+            except Exception as e:
+                logger.error(f"❌ 获取{type_name}时发生错误: {e}")
+                continue
+        
+        if not all_data:
+            logger.error("未获取到任何同花顺指数数据")
+            return None
+        
+        # 合并所有数据
+        combined_df = pd.concat(all_data, ignore_index=True)
+        
+        logger.info(f"🎉 同花顺指数数据获取完成！")
+        logger.info(f"   📊 总指数数量: {len(combined_df)} 个")
+        
+        # 统计各类型数量
+        if 'type' in combined_df.columns:
+            type_summary = combined_df['type'].value_counts()
+            logger.info("📈 指数类型汇总：")
+            for idx_type, count in type_summary.items():
+                type_name = self._get_index_type_name(idx_type)
+                logger.info(f"   {type_name}: {count} 个")
+        
+        return combined_df
+    
+    def get_ths_member(self, ts_code: str = None, con_code: str = None) -> Optional[pd.DataFrame]:
+        """
+        获取同花顺概念指数成分股数据
+        
+        根据Tushare文档，需要5000积分权限，每分钟可调取200次
+        
+        Args:
+            ts_code: 板块指数代码
+            con_code: 股票代码
+            
+        Returns:
+            pd.DataFrame: 概念指数成分股数据
+        """
+        try:
+            logger.info(f"正在获取同花顺概念指数成分股数据...")
+            
+            # 构建参数字典
+            params = {}
+            if ts_code:
+                params['ts_code'] = ts_code
+            if con_code:
+                params['con_code'] = con_code
+            
+            # 调用Tushare API
+            df = self.pro.ths_member(**params)
+            
+            if df is None or df.empty:
+                logger.warning(f"未获取到指数 {ts_code} 的成分股数据")
+                return None
+            
+            logger.info(f"成功获取 {len(df)} 条成分股数据")
+            
+            # 显示成分股信息
+            if len(df) > 0:
+                logger.info(f"成分股示例：")
+                for i, (_, row) in enumerate(df.head(3).iterrows()):
+                    logger.info(f"  {row.get('con_name', 'N/A')}({row.get('con_code', 'N/A')})")
+                    
+            return df
+            
+        except Exception as e:
+            logger.error(f"获取同花顺概念指数成分股失败: {e}")
+            
+            # 检查是否是权限问题
+            if "权限" in str(e) or "积分" in str(e) or "permission" in str(e).lower():
+                logger.error("可能是权限不足，需要5000积分才能调用ths_member接口")
+                logger.info("请检查您的Tushare账户积分或升级账户权限")
+            
+            return None
+    
+    def get_all_concept_members(self, concept_indexes: List[str] = None, 
+                               batch_delay: float = 0.3) -> pd.DataFrame:
+        """
+        获取所有概念指数的成分股数据
+        
+        Args:
+            concept_indexes: 概念指数代码列表，如果为None则从数据库中获取
+            batch_delay: 每次API调用的延迟时间（秒），防止触发频率限制
+            
+        Returns:
+            pd.DataFrame: 所有概念指数成分股数据
+        """
+        import time
+        
+        logger.info("🚀 开始获取所有概念指数成分股数据...")
+        
+        # 如果没有提供指数列表，从数据库获取概念指数
+        if concept_indexes is None:
+            try:
+                from database import StockDatabase
+                with StockDatabase() as db:
+                    # 只获取概念指数(N)
+                    concept_df = db.query_ths_index(index_type='N')
+                    if concept_df is not None and not concept_df.empty:
+                        concept_indexes = concept_df['ts_code'].tolist()
+                        logger.info(f"从数据库获取到 {len(concept_indexes)} 个概念指数")
+                    else:
+                        logger.error("数据库中没有概念指数数据")
+                        return pd.DataFrame()
+            except Exception as e:
+                logger.error(f"从数据库获取概念指数失败: {e}")
+                return pd.DataFrame()
+        
+        if not concept_indexes:
+            logger.error("没有可用的概念指数列表")
+            return pd.DataFrame()
+        
+        all_members_data = []
+        total_indexes = len(concept_indexes)
+        successful_count = 0
+        failed_count = 0
+        
+        logger.info(f"开始批量获取 {total_indexes} 个概念指数的成分股数据")
+        
+        for i, ts_code in enumerate(concept_indexes, 1):
+            try:
+                logger.info(f"正在获取指数 {ts_code} 的成分股 ({i}/{total_indexes})")
+                
+                # 获取单个指数的成分股
+                df = self.get_ths_member(ts_code=ts_code)
+                
+                if df is not None and not df.empty:
+                    all_members_data.append(df)
+                    successful_count += 1
+                    logger.info(f"✅ 成功获取 {ts_code} 的 {len(df)} 只成分股")
+                else:
+                    failed_count += 1
+                    logger.warning(f"⚠️ 未获取到 {ts_code} 的成分股数据")
+                
+                # 显示进度
+                if i % 10 == 0 or i == total_indexes:
+                    success_rate = successful_count / i * 100
+                    logger.info(f"📊 进度: {i}/{total_indexes} ({i/total_indexes*100:.1f}%), "
+                              f"成功: {successful_count}, 失败: {failed_count} ({success_rate:.1f}%)")
+                
+                # API调用延迟，防止频率限制
+                time.sleep(batch_delay)
+                
+            except Exception as e:
+                failed_count += 1
+                logger.error(f"❌ 获取 {ts_code} 成分股时发生错误: {e}")
+                continue
+        
+        if not all_members_data:
+            logger.error("未获取到任何概念指数成分股数据")
+            return pd.DataFrame()
+        
+        # 合并所有数据
+        combined_df = pd.concat(all_members_data, ignore_index=True)
+        
+        logger.info(f"🎉 概念指数成分股数据获取完成！")
+        logger.info(f"   📊 总成分股记录: {len(combined_df):,} 条")
+        logger.info(f"   📈 涉及指数: {successful_count} 个")
+        logger.info(f"   📈 不重复股票: {combined_df['con_code'].nunique() if 'con_code' in combined_df.columns else 0} 只")
+        logger.info(f"   ✅ 成功率: {successful_count}/{total_indexes} ({successful_count/total_indexes*100:.1f}%)")
+        
+        return combined_df
+    
+    def get_concept_members_batch_with_db_insert(self, db_instance=None, 
+                                               concept_indexes: List[str] = None,
+                                               batch_delay: float = 0.3,
+                                               batch_size: int = 20) -> dict:
+        """
+        批量获取概念指数成分股并分批插入数据库
+        
+        Args:
+            db_instance: 数据库实例
+            concept_indexes: 概念指数代码列表
+            batch_delay: API调用延迟
+            batch_size: 分批插入的数量
+            
+        Returns:
+            dict: 统计信息
+        """
+        import time
+        
+        if db_instance is None:
+            logger.error("需要提供数据库实例进行分批插入")
+            return {}
+        
+        # 如果没有提供指数列表，从数据库获取概念指数
+        if concept_indexes is None:
+            concept_df = db_instance.query_ths_index(index_type='N')
+            if concept_df is not None and not concept_df.empty:
+                concept_indexes = concept_df['ts_code'].tolist()
+                logger.info(f"从数据库获取到 {len(concept_indexes)} 个概念指数")
+            else:
+                logger.error("数据库中没有概念指数数据")
+                return {}
+        
+        if not concept_indexes:
+            logger.error("没有可用的概念指数列表")
+            return {}
+        
+        # 统计信息
+        stats = {
+            'total_indexes': len(concept_indexes),
+            'successful_indexes': 0,
+            'failed_indexes': 0,
+            'total_members': 0,
+            'batch_count': 0,
+            'successful_batches': 0,
+            'failed_batches': 0,
+            'failed_index_codes': []
+        }
+        
+        logger.info(f"🚀 开始批量获取并插入 {stats['total_indexes']} 个概念指数的成分股数据")
+        logger.info(f"📦 分批设置: 每 {batch_size} 个指数插入一次数据库")
+        
+        current_batch_data = []
+        
+        for i, ts_code in enumerate(concept_indexes, 1):
+            try:
+                logger.info(f"📊 正在获取指数 {ts_code} 的成分股 ({i}/{stats['total_indexes']})")
+                
+                # 获取单个指数的成分股
+                df = self.get_ths_member(ts_code=ts_code)
+                
+                if df is not None and not df.empty:
+                    current_batch_data.append(df)
+                    stats['successful_indexes'] += 1
+                    stats['total_members'] += len(df)
+                    logger.info(f"✅ 成功获取 {ts_code} 的 {len(df)} 只成分股")
+                else:
+                    stats['failed_indexes'] += 1
+                    stats['failed_index_codes'].append(ts_code)
+                    logger.warning(f"⚠️ 未获取到 {ts_code} 的成分股数据")
+                
+                # API调用延迟
+                time.sleep(batch_delay)
+                
+                # 检查是否需要插入数据库
+                should_insert = (
+                    len(current_batch_data) >= batch_size or  # 达到批次大小
+                    i == stats['total_indexes']  # 是最后一个指数
+                )
+                
+                if should_insert and current_batch_data:
+                    # 合并当前批次数据
+                    batch_df = pd.concat(current_batch_data, ignore_index=True)
+                    batch_records = len(batch_df)
+                    
+                    logger.info(f"💾 开始插入第 {stats['batch_count'] + 1} 批数据...")
+                    logger.info(f"   📊 本批数据: {batch_records:,} 条成分股记录")
+                    
+                    # 插入数据库
+                    insert_success = db_instance.insert_ths_member(batch_df)
+                    
+                    if insert_success:
+                        stats['batch_count'] += 1
+                        stats['successful_batches'] += 1
+                        logger.info(f"✅ 第 {stats['batch_count']} 批数据插入成功！")
+                    else:
+                        stats['failed_batches'] += 1
+                        logger.error(f"❌ 第 {stats['batch_count'] + 1} 批数据插入失败")
+                    
+                    # 清空当前批次数据，释放内存
+                    current_batch_data = []
+                
+                # 显示进度
+                if i % 10 == 0 or i == stats['total_indexes']:
+                    success_rate = stats['successful_indexes'] / i * 100
+                    logger.info(f"📊 进度: {i}/{stats['total_indexes']} ({i/stats['total_indexes']*100:.1f}%), "
+                              f"成功: {stats['successful_indexes']}, 失败: {stats['failed_indexes']} ({success_rate:.1f}%)")
+                    logger.info(f"   💾 已插入: {stats['total_members']:,} 条成分股记录")
+                
+            except Exception as e:
+                stats['failed_indexes'] += 1
+                stats['failed_index_codes'].append(ts_code)
+                logger.error(f"❌ 获取 {ts_code} 成分股时发生错误: {e}")
+                continue
+        
+        # 最终统计
+        logger.info(f"🎉 概念指数成分股数据获取和插入完成！")
+        logger.info(f"   📊 处理指数: {stats['total_indexes']} 个")
+        logger.info(f"   ✅ 成功指数: {stats['successful_indexes']} 个")
+        logger.info(f"   📊 总成分股记录: {stats['total_members']:,} 条")
+        logger.info(f"   📦 插入批次: {stats['batch_count']} 次")
+        logger.info(f"   💾 插入成功率: {stats['successful_batches']}/{stats['batch_count']}")
+        
+        if stats['failed_index_codes']:
+            logger.warning(f"   ⚠️ 失败的指数: {len(stats['failed_index_codes'])} 个")
+            logger.debug(f"   失败指数代码: {stats['failed_index_codes']}")
+        
+        return stats

@@ -132,6 +132,75 @@ class StockDatabase:
             logger.error(f"创建股票基础信息表失败: {e}")
             return False
     
+    def create_ths_index_table(self):
+        """创建同花顺概念和行业指数表"""
+        if not self.connection:
+            logger.error("请先连接数据库")
+            return False
+            
+        try:
+            with self.connection.cursor() as cursor:
+                create_table_sql = """
+                CREATE TABLE IF NOT EXISTS ths_index (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    ts_code VARCHAR(20) NOT NULL UNIQUE COMMENT '指数代码',
+                    name VARCHAR(100) NOT NULL COMMENT '指数名称',
+                    count INT COMMENT '成分个数',
+                    exchange VARCHAR(10) COMMENT '交易所',
+                    list_date DATE COMMENT '上市日期',
+                    type VARCHAR(10) COMMENT '指数类型(N-概念指数 I-行业指数 R-地域指数 S-同花顺特色指数 ST-同花顺风格指数 TH-同花顺主题指数 BB-同花顺宽基指数)',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+                    INDEX idx_ts_code (ts_code),
+                    INDEX idx_name (name),
+                    INDEX idx_type (type),
+                    INDEX idx_exchange (exchange)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='同花顺概念和行业指数表';
+                """
+                cursor.execute(create_table_sql)
+                self.connection.commit()
+                logger.info("同花顺概念和行业指数表创建成功")
+                return True
+        except Exception as e:
+            logger.error(f"创建同花顺概念和行业指数表失败: {e}")
+            return False
+    
+    def create_ths_member_table(self):
+        """创建同花顺概念指数成分股表"""
+        if not self.connection:
+            logger.error("请先连接数据库")
+            return False
+            
+        try:
+            with self.connection.cursor() as cursor:
+                create_table_sql = """
+                CREATE TABLE IF NOT EXISTS ths_member (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    ts_code VARCHAR(20) NOT NULL COMMENT '指数代码',
+                    con_code VARCHAR(20) NOT NULL COMMENT '成分股代码',
+                    con_name VARCHAR(50) COMMENT '成分股名称',
+                    weight DECIMAL(8,4) COMMENT '权重(暂无)',
+                    in_date DATE COMMENT '纳入日期(暂无)',
+                    out_date DATE COMMENT '剔除日期(暂无)',
+                    is_new VARCHAR(1) COMMENT '是否最新(Y是N否)',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+                    UNIQUE KEY unique_index_stock (ts_code, con_code),
+                    INDEX idx_ts_code (ts_code),
+                    INDEX idx_con_code (con_code),
+                    INDEX idx_con_name (con_name),
+                    INDEX idx_is_new (is_new),
+                    FOREIGN KEY fk_ths_index (ts_code) REFERENCES ths_index(ts_code) ON DELETE CASCADE
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='同花顺概念指数成分股表';
+                """
+                cursor.execute(create_table_sql)
+                self.connection.commit()
+                logger.info("同花顺概念指数成分股表创建成功")
+                return True
+        except Exception as e:
+            logger.error(f"创建同花顺概念指数成分股表失败: {e}")
+            return False
+    
     def insert_daily_data(self, df: pd.DataFrame):
         """
         批量插入日线数据
@@ -248,6 +317,115 @@ class StockDatabase:
                 
         except Exception as e:
             logger.error(f"插入股票基础信息失败: {e}")
+            self.connection.rollback()
+            return False
+    
+    def insert_ths_index(self, df: pd.DataFrame):
+        """
+        批量插入同花顺概念和行业指数数据
+        
+        Args:
+            df: 包含同花顺概念指数的DataFrame
+            
+        Returns:
+            bool: 插入是否成功
+        """
+        if not self.connection:
+            logger.error("请先连接数据库")
+            return False
+        
+        if df.empty:
+            logger.warning("同花顺概念指数数据为空，跳过插入")
+            return True
+            
+        try:
+            with self.connection.cursor() as cursor:
+                # 准备插入SQL语句
+                insert_sql = """
+                INSERT INTO ths_index 
+                (ts_code, name, count, exchange, list_date, type)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                name=VALUES(name), count=VALUES(count), exchange=VALUES(exchange),
+                list_date=VALUES(list_date), type=VALUES(type), updated_at=CURRENT_TIMESTAMP
+                """
+                
+                # 准备数据
+                data_list = []
+                for _, row in df.iterrows():
+                    data_list.append((
+                        row['ts_code'],
+                        row['name'] if pd.notna(row['name']) else None,
+                        row['count'] if pd.notna(row['count']) else None,
+                        row['exchange'] if pd.notna(row['exchange']) else None,
+                        row['list_date'] if pd.notna(row['list_date']) else None,
+                        row['type'] if pd.notna(row['type']) else None,
+                    ))
+                
+                # 批量执行插入
+                cursor.executemany(insert_sql, data_list)
+                self.connection.commit()
+                
+                logger.info(f"成功插入/更新 {len(data_list)} 条同花顺概念指数记录")
+                return True
+                
+        except Exception as e:
+            logger.error(f"插入同花顺概念指数失败: {e}")
+            self.connection.rollback()
+            return False
+    
+    def insert_ths_member(self, df: pd.DataFrame):
+        """
+        批量插入同花顺概念指数成分股数据
+        
+        Args:
+            df: 包含同花顺概念指数成分股的DataFrame
+            
+        Returns:
+            bool: 插入是否成功
+        """
+        if not self.connection:
+            logger.error("请先连接数据库")
+            return False
+        
+        if df.empty:
+            logger.warning("同花顺概念指数成分股数据为空，跳过插入")
+            return True
+            
+        try:
+            with self.connection.cursor() as cursor:
+                # 准备插入SQL语句
+                insert_sql = """
+                INSERT INTO ths_member 
+                (ts_code, con_code, con_name, weight, in_date, out_date, is_new)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                con_name=VALUES(con_name), weight=VALUES(weight), in_date=VALUES(in_date),
+                out_date=VALUES(out_date), is_new=VALUES(is_new), updated_at=CURRENT_TIMESTAMP
+                """
+                
+                # 准备数据
+                data_list = []
+                for _, row in df.iterrows():
+                    data_list.append((
+                        row['ts_code'],
+                        row['con_code'] if pd.notna(row['con_code']) else None,
+                        row['con_name'] if pd.notna(row['con_name']) else None,
+                        row.get('weight') if pd.notna(row.get('weight')) else None,
+                        row.get('in_date') if pd.notna(row.get('in_date')) else None,
+                        row.get('out_date') if pd.notna(row.get('out_date')) else None,
+                        row.get('is_new') if pd.notna(row.get('is_new')) else None,
+                    ))
+                
+                # 批量执行插入
+                cursor.executemany(insert_sql, data_list)
+                self.connection.commit()
+                
+                logger.info(f"成功插入/更新 {len(data_list)} 条同花顺概念指数成分股记录")
+                return True
+                
+        except Exception as e:
+            logger.error(f"插入同花顺概念指数成分股失败: {e}")
             self.connection.rollback()
             return False
     
@@ -394,6 +572,123 @@ class StockDatabase:
             logger.error(f"查询涨停股票失败: {e}")
             return None
     
+    def query_ths_index(self, ts_code: str = None, index_type: str = None, 
+                       exchange: str = None, limit: int = None) -> Optional[pd.DataFrame]:
+        """
+        查询同花顺概念和行业指数数据
+        
+        Args:
+            ts_code: 指数代码
+            index_type: 指数类型 (N-概念指数 I-行业指数等)
+            exchange: 交易所
+            limit: 限制返回条数
+            
+        Returns:
+            pd.DataFrame: 查询结果
+        """
+        if not self.connection:
+            logger.error("请先连接数据库")
+            return None
+            
+        try:
+            conditions = []
+            params = []
+            
+            if ts_code:
+                conditions.append("ts_code = %s")
+                params.append(ts_code)
+            
+            if index_type:
+                conditions.append("type = %s")
+                params.append(index_type)
+                
+            if exchange:
+                conditions.append("exchange = %s")
+                params.append(exchange)
+            
+            where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
+            limit_clause = f"LIMIT {limit}" if limit else ""
+            
+            query_sql = f"""
+            SELECT ts_code, name, count, exchange, list_date, type, 
+                   created_at, updated_at
+            FROM ths_index
+            {where_clause}
+            ORDER BY type, name
+            {limit_clause}
+            """
+            
+            df = pd.read_sql(query_sql, self.connection, params=params)
+            logger.info(f"查询到 {len(df)} 条同花顺指数记录")
+            return df
+            
+        except Exception as e:
+            logger.error(f"查询同花顺指数数据失败: {e}")
+            return None
+    
+    def query_ths_member(self, ts_code: str = None, con_code: str = None, 
+                        con_name: str = None, is_new: str = None, 
+                        limit: int = None) -> Optional[pd.DataFrame]:
+        """
+        查询同花顺概念指数成分股数据
+        
+        Args:
+            ts_code: 指数代码
+            con_code: 成分股代码
+            con_name: 成分股名称关键字
+            is_new: 是否最新 (Y-是 N-否)
+            limit: 限制返回条数
+            
+        Returns:
+            pd.DataFrame: 查询结果
+        """
+        if not self.connection:
+            logger.error("请先连接数据库")
+            return None
+            
+        try:
+            conditions = []
+            params = []
+            
+            if ts_code:
+                conditions.append("m.ts_code = %s")
+                params.append(ts_code)
+            
+            if con_code:
+                conditions.append("m.con_code = %s")
+                params.append(con_code)
+                
+            if con_name:
+                conditions.append("m.con_name LIKE %s")
+                params.append(f"%{con_name}%")
+            
+            if is_new:
+                conditions.append("m.is_new = %s")
+                params.append(is_new)
+            
+            where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
+            limit_clause = f"LIMIT {limit}" if limit else ""
+            
+            # 联表查询，获取指数信息
+            query_sql = f"""
+            SELECT m.ts_code, i.name as index_name, i.type as index_type,
+                   m.con_code, m.con_name, m.weight, m.in_date, m.out_date, m.is_new,
+                   m.created_at, m.updated_at
+            FROM ths_member m
+            LEFT JOIN ths_index i ON m.ts_code = i.ts_code
+            {where_clause}
+            ORDER BY m.ts_code, m.con_code
+            {limit_clause}
+            """
+            
+            df = pd.read_sql(query_sql, self.connection, params=params)
+            logger.info(f"查询到 {len(df)} 条同花顺概念指数成分股记录")
+            return df
+            
+        except Exception as e:
+            logger.error(f"查询同花顺概念指数成分股数据失败: {e}")
+            return None
+
     def get_latest_trading_date(self) -> Optional[str]:
         """获取最近交易日期"""
         if not self.connection:
