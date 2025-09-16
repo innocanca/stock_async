@@ -745,6 +745,154 @@ class StockDatabase:
             logger.error(f"批量获取股票概念板块失败: {e}")
             return {}
 
+    def get_pullback_to_ma10_stocks(self, strong_rise_days: int = 3, min_rise_pct: float = 25.0,
+                                    pullback_days_min: int = 3, pullback_days_max: int = 5,
+                                    ma10_tolerance: float = 3.0) -> Optional[pd.DataFrame]:
+        """
+        查询强势回踩10日线的股票
+        
+        Args:
+            strong_rise_days: 强势上涨天数（默认3天）
+            min_rise_pct: 最小上涨幅度（默认25%）
+            pullback_days_min: 最小回调天数（默认3天）
+            pullback_days_max: 最大回调天数（默认5天）
+            ma10_tolerance: 10日线容忍度百分比（默认3%）
+            
+        Returns:
+            pd.DataFrame: 符合条件的股票数据
+        """
+        if not self.connection:
+            logger.error("请先连接数据库")
+            return None
+            
+        try:
+            # 简化查询：分步骤查找符合条件的股票
+            query_sql = """
+            SELECT 
+                d.ts_code,
+                s.name,
+                s.industry,
+                d.trade_date,
+                d.close,
+                d.change_pct,
+                d.amount,
+                -- 计算10日移动平均线
+                (SELECT AVG(d2.close) 
+                 FROM daily_data d2 
+                 WHERE d2.ts_code = d.ts_code 
+                 AND d2.trade_date <= d.trade_date 
+                 ORDER BY d2.trade_date DESC 
+                 LIMIT 10) as ma10
+            FROM daily_data d
+            LEFT JOIN stock_basic s ON d.ts_code = s.ts_code
+            WHERE d.trade_date >= (
+                SELECT trade_date 
+                FROM (
+                    SELECT DISTINCT trade_date 
+                    FROM daily_data 
+                    ORDER BY trade_date DESC 
+                    LIMIT 10
+                ) recent_dates 
+                ORDER BY trade_date ASC 
+                LIMIT 1
+            )
+            AND d.vol > 0
+            AND (
+                -- 上交所主板
+                (d.ts_code LIKE '600%.SH' OR d.ts_code LIKE '601%.SH' OR 
+                 d.ts_code LIKE '603%.SH' OR d.ts_code LIKE '605%.SH')
+                OR
+                -- 深交所主板（包括原中小板）
+                (d.ts_code LIKE '000%.SZ' OR d.ts_code LIKE '001%.SZ' OR d.ts_code LIKE '002%.SZ')
+            )
+            ORDER BY d.ts_code, d.trade_date DESC
+            """
+            
+            df = pd.read_sql(query_sql, self.connection)
+            
+            if df.empty:
+                logger.info("未查询到任何股票数据")
+                return pd.DataFrame()
+            
+            # 使用pandas进行进一步筛选
+            result_stocks = []
+            
+            for ts_code in df['ts_code'].unique():
+                stock_data = df[df['ts_code'] == ts_code].sort_values('trade_date').reset_index(drop=True)
+                
+                if len(stock_data) < 15:  # 确保有足够数据
+                    continue
+                
+                # 查找强势上涨期（前3天涨幅≥25%）
+                for i in range(len(stock_data) - 8):  # 留出回调空间
+                    if i + strong_rise_days >= len(stock_data):
+                        break
+                    
+                    rise_start_price = stock_data.iloc[i]['close']
+                    rise_end_price = stock_data.iloc[i + strong_rise_days - 1]['close']
+                    rise_pct = (rise_end_price - rise_start_price) / rise_start_price * 100
+                    
+                    if rise_pct >= min_rise_pct:
+                        # 检查后续3-5天的回调情况
+                        for j in range(pullback_days_min, min(pullback_days_max + 1, len(stock_data) - i - strong_rise_days + 1)):
+                            if i + strong_rise_days - 1 + j >= len(stock_data):
+                                break
+                                
+                            current_row = stock_data.iloc[i + strong_rise_days - 1 + j]
+                            current_price = current_row['close']
+                            ma10 = current_row['ma10']
+                            
+                            if ma10 is None or ma10 == 0:
+                                continue
+                            
+                            # 计算回调幅度和距MA10距离
+                            pullback_pct = (current_price - rise_end_price) / rise_end_price * 100
+                            distance_from_ma10 = (current_price - ma10) / ma10 * 100
+                            
+                            # 检查是否符合回踩条件
+                            if (pullback_pct < -2 and  # 有明显回调
+                                abs(distance_from_ma10) <= ma10_tolerance):  # 接近10日线
+                                
+                                result_stocks.append({
+                                    'ts_code': ts_code,
+                                    'name': current_row['name'],
+                                    'industry': current_row['industry'],
+                                    'rise_start_date': stock_data.iloc[i]['trade_date'],
+                                    'rise_end_date': stock_data.iloc[i + strong_rise_days - 1]['trade_date'],
+                                    'current_date': current_row['trade_date'],
+                                    'rise_start_price': rise_start_price,
+                                    'rise_end_price': rise_end_price,
+                                    'current_price': current_price,
+                                    'ma10': ma10,
+                                    'rise_pct': rise_pct,
+                                    'pullback_days': j,
+                                    'pullback_pct': pullback_pct,
+                                    'distance_from_ma10': distance_from_ma10,
+                                    'amount': current_row['amount'],
+                                    'current_change_pct': current_row['change_pct']
+                                })
+                                break  # 找到一个符合条件的就跳出
+                        break  # 找到强势期就跳出
+            
+            result_df = pd.DataFrame(result_stocks)
+            
+            if not result_df.empty:
+                # 按前期涨幅和距离MA10排序
+                result_df = result_df.sort_values(['rise_pct', 'distance_from_ma10'], 
+                                                ascending=[False, True]).reset_index(drop=True)
+                result_df['is_above_ma10'] = result_df['distance_from_ma10'] > 0
+                logger.info(f"查询到 {len(result_df)} 只强势回踩10日线股票")
+            else:
+                logger.info("未查询到符合条件的强势回踩股票")
+                
+            return result_df
+                
+        except Exception as e:
+            logger.error(f"查询强势回踩10日线股票失败: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+
     def get_latest_trading_date(self) -> Optional[str]:
         """获取最近交易日期"""
         if not self.connection:
