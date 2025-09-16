@@ -15,7 +15,12 @@ python init_ths_index.py
 
 import logging
 import sys
+import os
 from datetime import datetime
+
+# 添加父目录到Python路径，以便导入database和fetcher模块
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from database import StockDatabase
 from fetcher import StockDataFetcher
 
