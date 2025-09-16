@@ -39,7 +39,7 @@ def get_stock_market(ts_code: str) -> str:
         return '其他'
 
 
-def create_limit_up_markdown(df, trade_date: str, top_sector: str = None, sector_stats: dict = None) -> str:
+def create_limit_up_markdown(df, trade_date: str, top_sector: str = None, sector_type: str = None, sector_stats: dict = None) -> str:
     """
     创建涨停股票的markdown格式消息（聚焦最热板块）
     
@@ -47,6 +47,7 @@ def create_limit_up_markdown(df, trade_date: str, top_sector: str = None, sector
         df: 涨停股票数据DataFrame（最热板块的股票）
         trade_date: 交易日期
         top_sector: 最热板块名称
+        sector_type: 板块类型（'概念'或'行业'）
         sector_stats: 各板块涨停统计
         
     Returns:
@@ -71,16 +72,19 @@ def create_limit_up_markdown(df, trade_date: str, top_sector: str = None, sector
     # 计算全市场涨停总数
     total_limit_up = sum(sector_stats.values()) if sector_stats else sector_count
     
+    # 获取板块显示名称
+    sector_display = f"{top_sector}({sector_type})" if top_sector and sector_type else (top_sector if top_sector else '未知')
+    
     # 构建markdown消息
     markdown_content = f"""# 🔥 最热板块涨停播报
 
 **交易日期**: {trade_date}  
-**最热板块**: {top_sector if top_sector else '未知'}  
+**最热板块**: {sector_display}  
 **该板块涨停数**: {sector_count}只 / 全市场{total_limit_up}只  
 **板块平均涨幅**: {avg_pct:.2f}%  
 **板块总成交额**: {total_amount:.2f}亿元
 
-## 🏆 {top_sector if top_sector else '涨停'} 板块榜单
+## 🏆 {sector_display} 板块榜单
 
 | 排名 | 股票名称 | 代码 | 涨幅(%) | 成交额(亿元) |
 |------|----------|------|---------|-------------|"""
@@ -109,7 +113,7 @@ def create_limit_up_markdown(df, trade_date: str, top_sector: str = None, sector
     if sector_stats and len(sector_stats) > 1:
         markdown_content += f"""
 
-## 📊 各板块涨停分布
+## 📊 各板块涨停分布（概念+行业）
 
 """
         # 按涨停数量排序显示前10个板块
@@ -125,7 +129,7 @@ def create_limit_up_markdown(df, trade_date: str, top_sector: str = None, sector
     if not df.empty:
         markdown_content += f"""
 
-## 📊 {top_sector if top_sector else '涨停股票'} 板块市场分布
+## 📊 {sector_display} 板块市场分布
 
 """
         market_stats = df['ts_code'].apply(get_stock_market).value_counts()
@@ -138,7 +142,7 @@ def create_limit_up_markdown(df, trade_date: str, top_sector: str = None, sector
         
         markdown_content += f"""
 
-## 📋 {top_sector if top_sector else '涨停股票'} 板块涨幅分布
+## 📋 {sector_display} 板块涨幅分布
 
 - **涨停(≥10%)**: {pct_10_plus}只
 - **准涨停(9.5%-10%)**: {pct_9_5_10}只"""
@@ -146,51 +150,131 @@ def create_limit_up_markdown(df, trade_date: str, top_sector: str = None, sector
     markdown_content += f"""
 
 ---
-💡 **聚焦策略**: 本次播报聚焦涨停家数最多的热点板块  
+💡 **聚焦策略**: 综合概念+行业板块，聚焦涨停家数最多的热点板块  
 *数据来源: Tushare*  
 *发送时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*"""
 
     return markdown_content
 
 
-def get_top_sector_stocks(df):
+def get_comprehensive_sector_stats(df, db):
     """
-    获取涨停家数最多的板块及其股票
+    获取综合的板块统计（包括概念板块和行业板块）
     
     Args:
         df: 涨停股票数据DataFrame
+        db: 数据库实例
         
     Returns:
-        tuple: (最热板块名称, 该板块的股票DataFrame, 各板块统计)
+        dict: 综合板块统计 {板块名称: {'count': 数量, 'type': '概念'/'行业', 'stocks': [股票列表]}}
     """
     if df.empty:
-        return None, df, {}
+        return {}
     
-    # 按行业分组统计涨停家数
-    sector_counts = df['industry'].value_counts()
+    # 获取股票代码列表
+    stock_codes = df['ts_code'].tolist()
     
-    # 过滤掉"未知"行业
-    if '未知' in sector_counts.index:
-        known_sectors = sector_counts[sector_counts.index != '未知']
-        if not known_sectors.empty:
-            sector_counts = known_sectors
+    # 初始化统计字典
+    comprehensive_stats = {}
     
-    if sector_counts.empty:
-        return '未知', df, {'未知': len(df)}
+    # 1. 统计行业板块
+    industry_stats = df['industry'].value_counts()
+    for industry, count in industry_stats.items():
+        if industry != '未知':  # 过滤掉未知行业
+            sector_stocks = df[df['industry'] == industry].copy()
+            comprehensive_stats[f"{industry}(行业)"] = {
+                'count': count,
+                'type': '行业',
+                'stocks': sector_stocks,
+                'sector_name': industry
+            }
     
-    # 获取涨停家数最多的板块
-    top_sector = sector_counts.index[0]
-    top_sector_count = sector_counts.iloc[0]
+    # 2. 统计概念板块
+    try:
+        logger.info("正在获取涨停股票的概念板块数据...")
+        concept_mapping = db.get_stocks_concept_sectors(stock_codes)
+        
+        concept_stats = {}
+        for stock_code, concepts in concept_mapping.items():
+            for concept_name, index_code in concepts:
+                if concept_name not in concept_stats:
+                    concept_stats[concept_name] = []
+                concept_stats[concept_name].append(stock_code)
+        
+        # 将概念统计加入综合统计
+        for concept_name, concept_stock_codes in concept_stats.items():
+            if concept_name != '未知概念':
+                count = len(concept_stock_codes)
+                # 获取该概念的股票数据
+                concept_stocks = df[df['ts_code'].isin(concept_stock_codes)].copy()
+                
+                if not concept_stocks.empty:
+                    comprehensive_stats[f"{concept_name}(概念)"] = {
+                        'count': count,
+                        'type': '概念',
+                        'stocks': concept_stocks,
+                        'sector_name': concept_name
+                    }
+        
+        logger.info(f"发现 {len(concept_stats)} 个概念板块有涨停股票")
+        
+    except Exception as e:
+        logger.error(f"获取概念板块统计失败: {e}")
     
-    # 获取该板块的所有股票
-    top_sector_stocks = df[df['industry'] == top_sector].copy()
+    return comprehensive_stats
+
+def get_top_sector_stocks(df, db):
+    """
+    获取涨停家数最多的板块及其股票（综合考虑概念板块和行业板块）
+    
+    Args:
+        df: 涨停股票数据DataFrame
+        db: 数据库实例
+        
+    Returns:
+        tuple: (最热板块名称, 板块类型, 该板块的股票DataFrame, 各板块统计)
+    """
+    if df.empty:
+        return None, None, df, {}
+    
+    # 获取综合板块统计
+    comprehensive_stats = get_comprehensive_sector_stats(df, db)
+    
+    if not comprehensive_stats:
+        # 如果没有概念数据，回退到只用行业
+        sector_counts = df['industry'].value_counts()
+        if '未知' in sector_counts.index:
+            known_sectors = sector_counts[sector_counts.index != '未知']
+            if not known_sectors.empty:
+                sector_counts = known_sectors
+        
+        if sector_counts.empty:
+            return '未知', '行业', df, {'未知': len(df)}
+        
+        top_sector = sector_counts.index[0]
+        top_sector_stocks = df[df['industry'] == top_sector].copy()
+        top_sector_stocks = top_sector_stocks.sort_values(['amount', 'change_pct'], ascending=[False, False])
+        
+        logger.info(f"最热板块: {top_sector}(行业)，涨停家数: {sector_counts.iloc[0]}")
+        return top_sector, '行业', top_sector_stocks, {f"{top_sector}(行业)": sector_counts.iloc[0]}
+    
+    # 找到涨停家数最多的板块
+    sorted_sectors = sorted(comprehensive_stats.items(), key=lambda x: x[1]['count'], reverse=True)
+    
+    top_sector_key, top_sector_info = sorted_sectors[0]
+    top_sector_name = top_sector_info['sector_name']
+    top_sector_type = top_sector_info['type']
+    top_sector_stocks = top_sector_info['stocks'].copy()
     
     # 按成交额排序
     top_sector_stocks = top_sector_stocks.sort_values(['amount', 'change_pct'], ascending=[False, False])
     
-    logger.info(f"最热板块: {top_sector}，涨停家数: {top_sector_count}")
+    # 准备统计数据供显示用
+    display_stats = {key: info['count'] for key, info in comprehensive_stats.items()}
     
-    return top_sector, top_sector_stocks, sector_counts.to_dict()
+    logger.info(f"最热板块: {top_sector_name}({top_sector_type})，涨停家数: {top_sector_info['count']}")
+    
+    return top_sector_name, top_sector_type, top_sector_stocks, display_stats
 
 
 def main():
@@ -217,21 +301,21 @@ def main():
             
             if limit_up_df.empty:
                 logger.info("今日无涨停股票")
-                markdown_msg = create_limit_up_markdown(limit_up_df, latest_date, None, {})
+                markdown_msg = create_limit_up_markdown(limit_up_df, latest_date, None, None, {})
             else:
-                # 获取涨停家数最多的板块
-                top_sector, top_sector_stocks, sector_stats = get_top_sector_stocks(limit_up_df)
+                # 获取涨停家数最多的板块（综合概念+行业）
+                top_sector, sector_type, top_sector_stocks, sector_stats = get_top_sector_stocks(limit_up_df, db)
                 
                 # 创建markdown消息 - 只显示最热板块的股票
-                markdown_msg = create_limit_up_markdown(top_sector_stocks, latest_date, top_sector, sector_stats)
+                markdown_msg = create_limit_up_markdown(top_sector_stocks, latest_date, top_sector, sector_type, sector_stats)
             
             # 发送消息
             logger.info("准备发送涨停股票消息...")
             send_markdown_message(markdown_msg)
             
             if not limit_up_df.empty:
-                top_sector, top_sector_stocks, _ = get_top_sector_stocks(limit_up_df)
-                logger.info(f"涨停股票查询完成，最热板块: {top_sector}，该板块涨停数: {len(top_sector_stocks)}")
+                top_sector, sector_type, top_sector_stocks, _ = get_top_sector_stocks(limit_up_df, db)
+                logger.info(f"涨停股票查询完成，最热板块: {top_sector}({sector_type})，该板块涨停数: {len(top_sector_stocks)}")
             else:
                 logger.info("涨停股票查询完成，今日无涨停股票")
             

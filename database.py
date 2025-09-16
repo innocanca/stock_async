@@ -689,6 +689,62 @@ class StockDatabase:
             logger.error(f"查询同花顺概念指数成分股数据失败: {e}")
             return None
 
+    def get_stocks_concept_sectors(self, stock_codes: List[str]) -> dict:
+        """
+        批量获取股票所属的概念板块
+        
+        Args:
+            stock_codes: 股票代码列表
+            
+        Returns:
+            dict: {股票代码: [(概念板块名称, 指数代码), ...]}
+        """
+        if not self.connection:
+            logger.error("请先连接数据库")
+            return {}
+            
+        if not stock_codes:
+            return {}
+            
+        try:
+            # 构建IN子句的占位符
+            placeholders = ','.join(['%s'] * len(stock_codes))
+            
+            query_sql = f"""
+            SELECT m.con_code, i.name as concept_name, m.ts_code as index_code
+            FROM ths_member m
+            LEFT JOIN ths_index i ON m.ts_code = i.ts_code
+            WHERE m.con_code IN ({placeholders})
+            AND i.type = 'N'
+            ORDER BY m.con_code, i.name
+            """
+            
+            df = pd.read_sql(query_sql, self.connection, params=stock_codes)
+            
+            # 组织返回数据
+            result = {}
+            for stock_code in stock_codes:
+                result[stock_code] = []
+            
+            if not df.empty:
+                for _, row in df.iterrows():
+                    stock_code = row['con_code']
+                    concept_name = row['concept_name'] or '未知概念'
+                    index_code = row['index_code']
+                    
+                    if stock_code in result:
+                        result[stock_code].append((concept_name, index_code))
+            
+            # 统计有概念板块的股票数量
+            stocks_with_concepts = sum(1 for concepts in result.values() if concepts)
+            logger.info(f"在 {len(stock_codes)} 只股票中，{stocks_with_concepts} 只股票有概念板块数据")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"批量获取股票概念板块失败: {e}")
+            return {}
+
     def get_latest_trading_date(self) -> Optional[str]:
         """获取最近交易日期"""
         if not self.connection:
