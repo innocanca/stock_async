@@ -25,6 +25,9 @@ python3 daily_news_push.py --summary-type detailed            # 详细分析总�
 python3 daily_news_push.py --test-mode                        # 测试模式
 python3 daily_news_push.py --ai-provider ollama --test-mode   # 使用本地大模型测试
 """
+import os
+# 添加父目录到Python路径，以便导入database和fetcher模块
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import argparse
 import logging
