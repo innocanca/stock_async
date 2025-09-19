@@ -54,6 +54,42 @@ class StrategyRunner:
                 'function': 'main',
                 'description': '强势回踩10日线',
                 'params': {}
+            },
+            'strong_sector_pullback': {
+                'module': 'strong_sector_pullback_notify',
+                'function': 'run_strong_sector_pullback_strategy',
+                'description': '强势板块(含概念)回调回踩10日线',
+                'params': {
+                    'min_pullback': 0.05,
+                    'max_pullback': 0.25,
+                    'ma10_tolerance': 0.03,
+                    'min_signal_strength': 70.0,
+                    'strong_sector_pct': 0.3
+                }
+            },
+            'bottom_reversal': {
+                'module': 'bottom_reversal_notify',
+                'function': 'run_bottom_reversal_strategy',
+                'description': '底部反转抄底策略（选手广生堂模式）',
+                'params': {
+                    'min_signal_strength': 70.0
+                }
+            },
+            'strong_pullback': {
+                'module': 'strong_pullback_notify',
+                'function': 'run_strong_pullback_strategy',
+                'description': '强势回调低吸策略（选手光库科技模式）',
+                'params': {
+                    'min_signal_strength': 70.0
+                }
+            },
+            'breakout_follow': {
+                'module': 'breakout_follow_notify',
+                'function': 'run_breakout_follow_strategy',
+                'description': '高位突破跟进策略（选手金信诺模式）',
+                'params': {
+                    'min_signal_strength': 75.0
+                }
             }
         }
     
