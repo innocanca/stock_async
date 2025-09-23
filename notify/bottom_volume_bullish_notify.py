@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-底部放量小阳线策略推送脚本
-策略：前期回调底部 + 连续小阳 + 量能逐渐放大 + 趋势向上站稳5日和10日线 + 活跃票
+放量小阳线策略推送脚本
+策略：连续小阳 + 量能逐渐放大 + 趋势向上站稳5日和10日线 + 活跃票
 
 核心逻辑：
-1. 前期回调底部：近20天内有明显回调（从高点回调>=15%），当前价格接近底部区域
-2. 连续小阳：最近3-5天连续收阳线，单日涨幅在0.5%-6%之间（小阳线特征）
-3. 量能逐渐放大：最近几天成交量呈递增趋势，今日成交量 > 前日成交量
-4. 趋势向上：股价站稳5日线和10日线，5日线>10日线，价格在5日线上方
-5. 活跃票：日成交金额 >= 5000万元，确保有足够的流动性
+1. 连续小阳：最近3-5天连续收阳线，单日涨幅在0.5%-6%之间（小阳线特征）
+2. 量能逐渐放大：最近几天成交量呈递增趋势，今日成交量 > 前日成交量
+3. 趋势向上：股价站稳5日线和10日线，5日线>10日线，价格在5日线上方
+4. 活跃票：日成交金额 >= 5000万元，确保有足够的流动性
 """
 
 import logging
@@ -29,7 +28,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('bottom_volume_bullish_notify.log', encoding='utf-8'),
+        logging.FileHandler('volume_bullish_notify.log', encoding='utf-8'),
         logging.StreamHandler(sys.stdout)
     ]
 )
@@ -271,52 +270,45 @@ def check_active_stock_condition(df: pd.DataFrame, min_amount: float = 50000000)
     }
 
 
-def calculate_strategy_score(pullback_info: dict, bullish_info: dict, volume_info: dict, 
+def calculate_strategy_score(bullish_info: dict, volume_info: dict, 
                            trend_info: dict, active_info: dict) -> float:
     """
     计算策略综合评分（0-100分）
     """
     score = 0.0
     
-    # 回调底部评分（0-25分）
-    if pullback_info.get('is_qualified', False):
-        pullback_score = min(25, pullback_info.get('max_pullback', 0) * 0.8)  # 回调越深分数越高
-        if pullback_info.get('current_position', 100) <= 20:  # 在最底部区域加分
-            pullback_score += 5
-        score += pullback_score
-    
-    # 连续小阳评分（0-25分）
+    # 连续小阳评分（0-35分）- 增加权重
     if bullish_info.get('is_qualified', False):
         consecutive_days = bullish_info.get('consecutive_days', 0)
-        score += min(25, consecutive_days * 6)  # 连续天数越多分数越高
+        score += min(35, consecutive_days * 8)  # 连续天数越多分数越高
     
-    # 量能放大评分（0-20分）
+    # 量能放大评分（0-25分）- 增加权重
     if volume_info.get('is_qualified', False):
         vol_ratio = volume_info.get('vol_ratio', 0)
         is_increasing = volume_info.get('is_increasing', False)
-        vol_score = min(15, vol_ratio * 8) + (5 if is_increasing else 0)
+        vol_score = min(20, vol_ratio * 10) + (5 if is_increasing else 0)
         score += vol_score
     
-    # 趋势向上评分（0-20分）
+    # 趋势向上评分（0-25分）- 增加权重
     if trend_info.get('is_qualified', False):
-        score += 20
+        score += 25
         # 距离均线越近加分
         ma5_distance = trend_info.get('ma5_distance', -10)
         if 0 <= ma5_distance <= 3:
             score += 5
     
-    # 活跃度评分（0-10分）
+    # 活跃度评分（0-15分）- 增加权重
     if active_info.get('is_qualified', False):
         amount = active_info.get('amount', 0)
-        active_score = min(10, (amount / 1e8) * 3)  # 成交额越大分数越高
+        active_score = min(15, (amount / 1e8) * 4)  # 成交额越大分数越高
         score += active_score
     
     return min(100.0, score)
 
 
-def find_bottom_volume_bullish_stocks() -> pd.DataFrame:
-    """查找符合底部放量小阳线策略的股票"""
-    logger.info("🚀 开始筛选底部放量小阳线机会...")
+def find_volume_bullish_stocks() -> pd.DataFrame:
+    """查找符合放量小阳线策略的股票"""
+    logger.info("🚀 开始筛选放量小阳线机会...")
     
     with StockDatabase() as db:
         # 获取最新交易日
@@ -374,7 +366,6 @@ def find_bottom_volume_bullish_stocks() -> pd.DataFrame:
                 continue
             
             # 检查各个策略条件
-            pullback_result = check_pullback_bottom_condition(stock_df)
             bullish_result = check_consecutive_bullish_condition(stock_df, min_days=3)
             volume_result = check_volume_increasing_condition(stock_df)
             trend_result = check_trend_upward_condition(stock_df)
@@ -382,7 +373,6 @@ def find_bottom_volume_bullish_stocks() -> pd.DataFrame:
             
             # 所有条件都需要满足
             if not all([
-                pullback_result.get('is_qualified', False),
                 bullish_result.get('is_qualified', False),
                 volume_result.get('is_qualified', False),
                 trend_result.get('is_qualified', False),
@@ -392,7 +382,7 @@ def find_bottom_volume_bullish_stocks() -> pd.DataFrame:
             
             # 计算综合评分
             strategy_score = calculate_strategy_score(
-                pullback_result, bullish_result, volume_result, trend_result, active_result
+                bullish_result, volume_result, trend_result, active_result
             )
             
             if strategy_score < 60:  # 评分过低过滤
@@ -412,7 +402,6 @@ def find_bottom_volume_bullish_stocks() -> pd.DataFrame:
                 'amount': latest_row['amount'] * 1000,  # 转为元
                 'vol_ratio': volume_result.get('vol_ratio', 0),
                 'strategy_score': strategy_score,
-                'pullback_info': pullback_result,
                 'bullish_info': bullish_result,
                 'volume_info': volume_result,
                 'trend_info': trend_result,
@@ -433,15 +422,14 @@ def find_bottom_volume_bullish_stocks() -> pd.DataFrame:
         return result_df
 
 
-def create_bottom_volume_bullish_markdown(df: pd.DataFrame, query_date: str) -> str:
-    """创建底部放量小阳线策略的markdown格式消息（表格形式）"""
+def create_volume_bullish_markdown(df: pd.DataFrame, query_date: str) -> str:
+    """创建放量小阳线策略的markdown格式消息（表格形式）"""
     if df.empty:
-        return f"""## 📈 底部放量小阳线策略 ({query_date})
+        return f"""## 📈 放量小阳线策略 ({query_date})
 
 ❌ **今日无符合条件的股票**
 
 **策略说明：**
-- 前期回调底部：近期有15%+回调，当前处于底部区域  
 - 连续小阳线：最近3天连续收阳，涨幅0.5%-6%
 - 量能放大：成交量递增或达到5日均量1.3倍
 - 趋势向上：站稳5日线和10日线，5日线>10日线
@@ -450,12 +438,12 @@ def create_bottom_volume_bullish_markdown(df: pd.DataFrame, query_date: str) -> 
 ---
 *策略提醒：仅供参考，投资需谨慎* 📊"""
     
-    content = f"""## 📈 底部放量小阳线策略 ({query_date})
+    content = f"""## 📈 放量小阳线策略 ({query_date})
 
 ✅ **找到 {len(df)} 只符合条件的优质标的**
 
 ### 🎯 策略核心
-🔹 前期回调底部 + 连续小阳 + 量能放大 + 趋势向上 + 活跃票
+🔹 连续小阳 + 量能放大 + 趋势向上 + 活跃票
 
 ### 📊 推荐股票列表
 
@@ -497,25 +485,25 @@ def create_bottom_volume_bullish_markdown(df: pd.DataFrame, query_date: str) -> 
 
 ### 🔍 详细策略分析
 
-| 股票 | 回调情况 | 小阳天数 | 量能状态 | 均线位置 |
+| 股票 | 小阳天数 | 量能状态 | 均线位置 | 成交状况 |
 |------|----------|----------|----------|----------|"""
     
     for i, (_, row) in enumerate(df.head(8).iterrows(), 1):
         stock_name = row['stock_name'][:6] + "..." if len(row['stock_name']) > 6 else row['stock_name']
         
-        pullback_info = row['pullback_info']
         bullish_info = row['bullish_info']
         volume_info = row['volume_info']
         trend_info = row['trend_info']
+        active_info = row['active_info']
         
         # 简化信息
-        pullback_desc = f"{pullback_info.get('max_pullback', 0):.1f}%回调"
         bullish_desc = f"{bullish_info.get('consecutive_days', 0)}天小阳"
         volume_desc = f"{volume_info.get('vol_ratio', 0):.1f}倍" + ("📈" if volume_info.get('is_increasing', False) else "")
         trend_desc = f"5日+{trend_info.get('ma5_distance', 0):.1f}%"
+        active_desc = active_info.get('amount_str', 'N/A')
         
         content += f"""
-| {stock_name} | {pullback_desc} | {bullish_desc} | {volume_desc} | {trend_desc} |"""
+| {stock_name} | {bullish_desc} | {volume_desc} | {trend_desc} | {active_desc} |"""
     
     content += f"""
 
@@ -523,7 +511,6 @@ def create_bottom_volume_bullish_markdown(df: pd.DataFrame, query_date: str) -> 
 
 | 条件 | 标准 | 说明 |
 |------|------|------|
-| 🎯 回调底部 | 回调≥15%，位置≤40% | 前期有明显回调，当前接近底部 |
 | 🕯️ 连续小阳 | 3天小阳线，涨幅0.5%-6% | 温和上涨，不急不躁 |
 | 📊 量能放大 | 递增或≥5日均量1.3倍 | 资金关注度提升 |
 | 📈 趋势向上 | 站稳5日线和10日线 | 技术面转强，多头排列 |
@@ -549,7 +536,7 @@ def create_bottom_volume_bullish_markdown(df: pd.DataFrame, query_date: str) -> 
 该策略适合有一定经验的投资者，建议结合大盘环境和个股基本面进行综合判断。投资有风险，入市需谨慎！
 
 ---
-*底部放量小阳线策略 | 数据时间: {query_date} | 仅供参考* 📈
+*放量小阳线策略 | 数据时间: {query_date} | 仅供参考* 📈
 """
     
     return content
@@ -558,10 +545,10 @@ def create_bottom_volume_bullish_markdown(df: pd.DataFrame, query_date: str) -> 
 def main():
     """主函数"""
     try:
-        logger.info("=== 底部放量小阳线策略推送开始 ===")
+        logger.info("=== 放量小阳线策略推送开始 ===")
         
         # 查找符合条件的股票
-        qualified_df = find_bottom_volume_bullish_stocks()
+        qualified_df = find_volume_bullish_stocks()
         
         if qualified_df.empty:
             logger.info("未找到符合条件的股票")
@@ -570,25 +557,25 @@ def main():
         query_date = datetime.now().strftime('%Y-%m-%d')
         
         # 生成推送消息
-        message = create_bottom_volume_bullish_markdown(qualified_df, query_date)
+        message = create_volume_bullish_markdown(qualified_df, query_date)
         
         # 发送推送
-        send_result = send_markdown_message(message)
+        # send_result = send_markdown_message(message)
         
-        if send_result:
-            logger.info("✅ 底部放量小阳线策略推送发送成功")
-            if not qualified_df.empty:
-                logger.info(f"推送了 {len(qualified_df)} 只符合条件的股票")
-        else:
-            logger.error("❌ 推送发送失败")
+        # if send_result:
+        #     logger.info("✅ 放量小阳线策略推送发送成功")
+        #     if not qualified_df.empty:
+        #         logger.info(f"推送了 {len(qualified_df)} 只符合条件的股票")
+        # else:
+        #     logger.error("❌ 推送发送失败")
             
     except Exception as e:
-        logger.error(f"底部放量小阳线策略推送失败: {e}")
+        logger.error(f"放量小阳线策略推送失败: {e}")
         import traceback
         logger.error(traceback.format_exc())
         return 1
     
-    logger.info("=== 底部放量小阳线策略推送结束 ===")
+    logger.info("=== 放量小阳线策略推送结束 ===")
     return 0
 
 
