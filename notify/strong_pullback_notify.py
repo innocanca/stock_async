@@ -18,6 +18,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from database import StockDatabase
 from send_msg import send_markdown_message
 
+
 # 配置日志
 logging.basicConfig(
     level=logging.INFO,
@@ -360,64 +361,35 @@ def create_strong_pullback_markdown(df: pd.DataFrame, query_date: str) -> str:
 """
     
     total_count = len(df)
-    avg_signal_strength = df['signal_strength'].mean()
-    avg_previous_surge = df['previous_surge'].mean()
-    avg_ma5_distance = df['ma5_distance'].mean()
     
-    markdown = f"""## 📈 强势回调低吸提醒 ({query_date})
+    markdown = f"""## 📈 强势回调低吸机会 ({query_date})
 
-🎯 **筛选结果：找到 {total_count} 只强势回调机会**
-- 📊 平均信号强度：{avg_signal_strength:.1f}分
-- 🚀 平均前期涨幅：{avg_previous_surge:.1f}%
-- 📉 平均距MA5：{avg_ma5_distance:.1f}%
+🎯 **找到 {total_count} 只强势回调机会**
 
----
-
-### 🏆 重点关注股票（按信号强度排序）
-
-"""
+| 排名 | 股票名称 | 代码 | 前期涨幅 | 距MA5 | 5日位置 | 成交量 | 信号强度 |
+|------|---------|------|----------|-------|---------|--------|----------|"""
     
-    for i, (_, row) in enumerate(df.head(10).iterrows(), 1):
+    for i, (_, row) in enumerate(df.head(15).iterrows(), 1):
         code = row['ts_code'].split('.')[0]
+        name = row['stock_name'][:6]  # 限制股票名称长度
         
         markdown += f"""
-**{i}. {row['stock_name']} ({code})**
-- 🏢 行业板块：{row['industry']} | {row['area']}
-- 💰 当前价格：{row['close']:.2f}元 ({row['pct_1d']:+.1f}%)
-- 🚀 前期强势：{row['surge_period']}天前涨{row['previous_surge']:.1f}%
-- 📉 回调位置：距MA5 {row['ma5_distance']:+.1f}%，5日内{row['pos_in_5d']:.1f}%位置
-- 🔊 成交量：{row['vol_ratio']:.1f}倍（{row['vol_pattern']}）
-- 🎯 信号强度：{row['signal_strength']:.0f}分
-- 💸 成交额：{row['amount_yi']:.1f}亿元
-- 📊 均线：MA5({row['ma5']:.2f}) MA10({row['ma10']:.2f})
-"""
+| {i:>2} | {name} | {code} | {row['previous_surge']:.1f}% | {row['ma5_distance']:+.1f}% | {row['pos_in_5d']:.1f}% | {row['vol_ratio']:.1f}x | {row['signal_strength']:.0f}分 |"""
     
-    if total_count > 10:
-        markdown += f"\\n... 还有 {total_count - 10} 只股票符合条件"
+    if total_count > 15:
+        markdown += f"\n\n*还有 {total_count - 15} 只股票符合条件*"
     
     markdown += f"""
 
 ---
 
-### 📋 策略说明
-**强势回调低吸策略（基于选手光库科技246%收益模式）：**
-1. 🚀 **前期大涨**：近期有20%+的上涨行情
-2. 📉 **技术回调**：回调到MA5附近（0-8%范围）
-3. 🔊 **量价配合**：缩量调整或温和放量
-4. 📊 **趋势完好**：上升趋势保持，MA5>=MA10
-5. 📍 **关键位置**：在5日内40-70%的技术支撑位
+**策略说明：**
+- 🚀 前期大涨：近期有20%+涨幅
+- 📉 技术回调：距MA5在0-8%范围
+- 🔊 量价配合：缩量调整或温和放量
+- 📊 趋势完好：上升趋势保持
 
-**投资逻辑：**
-- 强势股的技术回调是低吸良机
-- 在均线支撑位附近介入
-- 选手实战验证：光库科技获得246%收益
-
-**风险提示：**
-- 需要确认上升趋势未被破坏
-- 注意整体市场环境
-- 建议设置均线止损
-
-*策略来源：基于实战高手操作模式总结*
+*基于选手光库科技246%收益模式*
 """
     
     return markdown
@@ -437,14 +409,13 @@ def run_strong_pullback_strategy(notify: bool = True, min_signal_strength: float
             query_date = datetime.now().strftime('%Y-%m-%d')
         
         # 发送通知
-        if notify:
-            markdown_content = create_strong_pullback_markdown(result_df, query_date)
-            try:
-                send_result = send_markdown_message(markdown_content)
-                if send_result:
-                    logger.info("✅ 强势回调低吸提醒已发送")
-            except Exception as e:
-                logger.error(f"发送消息时出错: {e}")
+        markdown_content = create_strong_pullback_markdown(result_df, query_date)
+        try:
+            send_result = send_markdown_message(markdown_content)
+            if send_result:
+                logger.info("✅ 强势回调低吸提醒已发送")
+        except Exception as e:
+            logger.error(f"发送消息时出错: {e}")
         
         # 打印结果
         if not result_df.empty:
@@ -480,7 +451,6 @@ def main():
     args = parser.parse_args()
     
     result_df = run_strong_pullback_strategy(
-        notify=not args.no_notify,
         min_signal_strength=args.min_signal_strength
     )
     

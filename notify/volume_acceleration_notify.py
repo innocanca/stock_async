@@ -450,70 +450,37 @@ def create_volume_acceleration_markdown(df: pd.DataFrame, query_date: str) -> st
 建议放宽筛选条件或关注市场整体情况。
 """
     
-    # 统计信息
     total_count = len(df)
-    avg_signal_strength = df['signal_strength'].mean()
-    max_rise_3d = df['pct_3d'].max()
-    max_vol_ratio = df['vol_ratio'].max()
     
-    # 行业分布统计
-    industry_stats = df['industry'].value_counts().head(5)
-    hot_sectors = []
-    for industry, count in industry_stats.items():
-        if industry and industry != '未知':
-            hot_sectors.append(f"{industry}({count}只)")
+    markdown = f"""## 📈 放量加速突破机会 ({query_date})
+
+🎯 **找到 {total_count} 只放量加速突破机会**
+
+| 排名 | 股票名称 | 代码 | 行业板块 | 当前价 | 当日涨幅 | 3日涨幅 | 信号强度 |
+|------|---------|------|----------|--------|----------|---------|----------|"""
     
-    markdown = f"""## 📈 放量加速突破提醒 ({query_date})
-
-🎯 **筛选结果：找到 {total_count} 只符合条件的主板股票**
-- 📊 平均信号强度：{avg_signal_strength:.1f}分
-- 📈 最大3日涨幅：{max_rise_3d:.1f}%
-- 🔊 最大放量倍数：{max_vol_ratio:.1f}倍
-- 🏢 热点板块：{' | '.join(hot_sectors[:3])}
-
----
-
-### 🏆 重点关注股票（按信号强度排序）
-
-"""
-    
-    # 显示前10只股票
-    for i, (_, row) in enumerate(df.head(10).iterrows(), 1):
+    for i, (_, row) in enumerate(df.head(15).iterrows(), 1):
         code = format_stock_code(row['ts_code'])
-        market = get_stock_market(row['ts_code'])
+        name = row['stock_name'][:6]  # 限制股票名称长度
+        industry = row['industry'][:8] if row['industry'] else '未知'  # 限制行业名称长度
         
         markdown += f"""
-**{i}. {row['stock_name']} ({code})**
-- 🏢 行业板块：{row['industry']} | {row['area']}
-- 💰 价格：{row['close']:.2f}元 ({row['pct_1d']:+.1f}%)
-- 📈 短期涨幅：3日{row['pct_3d']:+.1f}% | 5日{row['pct_5d']:+.1f}%
-- 🔊 成交量：{row['vol']:,.0f}手 (放量{row['vol_ratio']:.1f}倍)
-- ⚡ 加速度：{row['acceleration_ratio']:.1f}倍
-- 📊 信号强度：{row['signal_strength']:.0f}分
-- 💸 成交额：{row['amount_yi']:.1f}亿元
-- 📉 均线：MA5({row['ma5']:.2f}) > MA10({row['ma10']:.2f}) > MA20({row['ma20']:.2f})
-"""
+| {i:>2} | {name} | {code} | {industry} | {row['close']:.2f} | {row['pct_1d']:+.1f}% | {row['pct_3d']:+.1f}% | {row['signal_strength']:.0f}分 |"""
     
-    if total_count > 10:
-        markdown += f"\\n... 还有 {total_count - 10} 只股票符合条件"
+    if total_count > 15:
+        markdown += f"\n\n*还有 {total_count - 15} 只股票符合条件*"
     
     markdown += f"""
 
 ---
 
-### 📋 策略说明
-**放量加速突破策略四大要素：**
-1. 🔊 **放量**：当日成交量 ≥ 5日均量的2倍
-2. ⚡ **加速**：近3日涨幅 > 前3日涨幅的1.5倍
-3. 📈 **陡增**：3日累计涨幅 ≥ 15%
-4. 📊 **向上**：MA5 > MA10 > MA20 多头排列
+**策略说明：**
+- 🔊 放量：成交量 ≥ 5日均量的2倍
+- ⚡ 加速：3日涨幅加速度 ≥ 1.5倍
+- 📈 陡增：3日累计涨幅 ≥ 15%
+- 📊 趋势：MA5 > MA10 > MA20
 
-**风险提示：**
-- 突破策略有假突破风险，需结合基本面分析
-- 高涨幅股票波动大，注意止损
-- 建议分批建仓，控制仓位
-
-*数据来源：基于最新交易日数据计算*
+*基于放量加速突破策略*
 """
     
     return markdown
