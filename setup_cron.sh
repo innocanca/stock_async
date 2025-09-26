@@ -39,7 +39,10 @@ CRON_CONFIG="# 股票数据系统定时任务
 55 18 * * 1-5 cd $SCRIPT_DIR && $PYTHON_PATH notify/strong_pullback_notify.py >> strategy_notify.log 2>&1
 
 # 每天19:00执行高位突破跟进策略
-0 19 * * 1-5 cd $SCRIPT_DIR && $PYTHON_PATH notify/breakout_follow_notify.py >> strategy_notify.log 2>&1"
+0 19 * * 1-5 cd $SCRIPT_DIR && $PYTHON_PATH notify/breakout_follow_notify.py >> strategy_notify.log 2>&1
+
+# 每天19:10执行每日市场复盘(带推送)
+10 19 * * 1-5 cd $SCRIPT_DIR && $PYTHON_PATH notify/daily_market_review.py --notify >> daily_review.log 2>&1"
 
 echo "📋 生成的Cron配置:"
 echo "================================================"
@@ -64,11 +67,13 @@ echo "18:45 - 选手模式策略集合"
 echo "18:50 - 底部反转抄底策略（广生堂模式）"
 echo "18:55 - 强势回调低吸策略（光库科技模式）"
 echo "19:00 - 高位突破跟进策略（金信诺模式）"
+echo "19:10 - 每日市场复盘分析（推送通知）"
 echo ""
 
 echo "🔍 监控命令:"
 echo "查看数据同步日志: tail -f daily_sync.log"
-echo "查看策略执行日志: tail -f strategy_notify.log" 
+echo "查看策略执行日志: tail -f strategy_notify.log"
+echo "查看每日复盘日志: tail -f daily_review.log" 
 echo "手动测试数据同步: python main.py --sync-today"
 echo "手动测试策略: python notify/volume_acceleration_notify.py --no-notify"
 echo ""

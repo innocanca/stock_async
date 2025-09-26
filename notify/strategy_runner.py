@@ -90,6 +90,14 @@ class StrategyRunner:
                 'params': {
                     'min_signal_strength': 75.0
                 }
+            },
+            'daily_review': {
+                'module': 'daily_market_review',
+                'function': 'run_daily_market_review',
+                'description': '每日市场复盘分析（综合报告）',
+                'params': {
+                    'notify': True
+                }
             }
         }
     
