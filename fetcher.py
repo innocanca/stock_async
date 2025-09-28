@@ -1067,3 +1067,242 @@ class StockDataFetcher:
             logger.debug(f"   失败指数代码: {stats['failed_index_codes']}")
         
         return stats
+    
+    def get_index_basic(self, ts_code: str = None, name: str = None, market: str = None,
+                       publisher: str = None, category: str = None) -> Optional[pd.DataFrame]:
+        """
+        获取指数基础信息
+        
+        Args:
+            ts_code: 指数代码
+            name: 指数简称
+            market: 交易所或服务商(默认SSE)
+            publisher: 发布商
+            category: 指数类别
+            
+        Returns:
+            pd.DataFrame: 指数基本信息
+        """
+        try:
+            logger.info("正在获取指数基础信息...")
+            
+            # 构建参数字典
+            params = {}
+            if ts_code:
+                params['ts_code'] = ts_code
+            if name:
+                params['name'] = name
+            if market:
+                params['market'] = market
+            if publisher:
+                params['publisher'] = publisher
+            if category:
+                params['category'] = category
+            
+            # 调用Tushare API
+            df = self.pro.index_basic(**params)
+            
+            if df is None or df.empty:
+                logger.warning("未获取到指数基础信息")
+                return None
+                
+            # 数据预处理
+            if 'base_date' in df.columns:
+                df['base_date'] = pd.to_datetime(df['base_date'], format='%Y%m%d', errors='coerce')
+            if 'list_date' in df.columns:
+                df['list_date'] = pd.to_datetime(df['list_date'], format='%Y%m%d', errors='coerce')
+            if 'exp_date' in df.columns:
+                df['exp_date'] = pd.to_datetime(df['exp_date'], format='%Y%m%d', errors='coerce')
+            
+            logger.info(f"成功获取 {len(df)} 条指数基础信息")
+            
+            # 显示统计信息
+            if 'market' in df.columns:
+                market_counts = df['market'].value_counts()
+                logger.info("市场分布：")
+                for market, count in market_counts.items():
+                    logger.info(f"  {market}: {count}个")
+            
+            # 显示前几个指数信息
+            logger.info("部分指数示例：")
+            for i, (_, row) in enumerate(df.head(3).iterrows()):
+                logger.info(f"  {row.get('name', 'N/A')}({row.get('ts_code', 'N/A')}) "
+                          f"- {row.get('market', 'N/A')} - 发布方:{row.get('publisher', 'N/A')}")
+            
+            return df
+            
+        except Exception as e:
+            logger.error(f"获取指数基础信息失败: {e}")
+            return None
+    
+    def get_index_daily(self, ts_code: str = None, trade_date: str = None, 
+                       start_date: str = None, end_date: str = None) -> Optional[pd.DataFrame]:
+        """
+        获取指数日线行情数据
+        
+        Args:
+            ts_code: 指数代码
+            trade_date: 交易日期(YYYYMMDD格式)
+            start_date: 开始日期(YYYYMMDD格式)
+            end_date: 结束日期(YYYYMMDD格式)
+            
+        Returns:
+            pd.DataFrame: 指数日线行情数据
+        """
+        try:
+            if ts_code:
+                logger.info(f"正在获取指数 {ts_code} 的日线行情数据...")
+            else:
+                logger.info("正在获取指数日线行情数据...")
+            
+            # 构建参数字典
+            params = {}
+            if ts_code:
+                params['ts_code'] = ts_code
+            if trade_date:
+                params['trade_date'] = trade_date
+            if start_date:
+                params['start_date'] = start_date
+            if end_date:
+                params['end_date'] = end_date
+            
+            # 调用Tushare API
+            df = self.pro.index_daily(**params)
+            
+            if df is None or df.empty:
+                logger.warning("未获取到指数日线行情数据")
+                return None
+                
+            # 数据预处理
+            if 'trade_date' in df.columns:
+                df['trade_date'] = pd.to_datetime(df['trade_date'], format='%Y%m%d')
+            
+            logger.info(f"成功获取 {len(df)} 条指数日线行情数据")
+            
+            return df
+            
+        except Exception as e:
+            logger.error(f"获取指数日线行情失败: {e}")
+            return None
+    
+    def get_all_index_basic_data(self) -> Optional[pd.DataFrame]:
+        """
+        获取所有指数基础信息数据（分市场获取）
+        
+        Returns:
+            pd.DataFrame: 所有指数基础信息数据
+        """
+        logger.info("🚀 开始获取所有指数基础信息数据...")
+        
+        # 定义要获取的市场类型
+        markets = ['SSE', 'SZSE', 'MSCI', 'CSI', 'CICC', 'SW', 'OTH']
+        all_data = []
+        
+        for market in markets:
+            try:
+                logger.info(f"正在获取{market}指数数据...")
+                
+                df = self.get_index_basic(market=market)
+                
+                if df is not None and not df.empty:
+                    all_data.append(df)
+                    logger.info(f"✅ 成功获取{market} {len(df)} 个指数")
+                else:
+                    logger.warning(f"⚠️ 未获取到{market}指数数据")
+                
+                # API调用延迟
+                import time
+                time.sleep(0.5)
+                
+            except Exception as e:
+                logger.error(f"❌ 获取{market}指数时发生错误: {e}")
+                continue
+        
+        if not all_data:
+            logger.error("未获取到任何指数基础信息数据")
+            return None
+        
+        # 合并所有数据
+        combined_df = pd.concat(all_data, ignore_index=True)
+        
+        logger.info(f"🎉 指数基础信息获取完成！")
+        logger.info(f"   📊 总指数数量: {len(combined_df)} 个")
+        
+        # 统计各市场数量
+        if 'market' in combined_df.columns:
+            market_summary = combined_df['market'].value_counts()
+            logger.info("📈 市场分布汇总：")
+            for market, count in market_summary.items():
+                logger.info(f"   {market}: {count} 个")
+        
+        return combined_df
+    
+    def get_major_index_daily_data(self, start_date: str, end_date: str, 
+                                  delay: float = 0.5) -> Optional[pd.DataFrame]:
+        """
+        获取主要指数的日线行情数据
+        
+        Args:
+            start_date: 开始日期(YYYYMMDD格式)
+            end_date: 结束日期(YYYYMMDD格式)
+            delay: API调用延迟
+            
+        Returns:
+            pd.DataFrame: 主要指数日线行情数据
+        """
+        import time
+        
+        logger.info("🚀 开始获取主要指数日线行情数据...")
+        
+        # 定义主要指数代码
+        major_indexes = [
+            '000001.SH',  # 上证综指
+            '000300.SH',  # 沪深300
+            '000905.SH',  # 中证500
+            '000016.SH',  # 上证50
+            '399001.SZ',  # 深证成指
+            '399006.SZ',  # 创业板指
+            '399303.SZ',  # 国证2000
+            '000852.SH',  # 中证1000
+            '000688.SH',  # 科创50
+        ]
+        
+        all_data = []
+        total_indexes = len(major_indexes)
+        
+        for i, ts_code in enumerate(major_indexes, 1):
+            try:
+                logger.info(f"正在获取 {ts_code} 指数行情 ({i}/{total_indexes})")
+                
+                df = self.get_index_daily(
+                    ts_code=ts_code,
+                    start_date=start_date,
+                    end_date=end_date
+                )
+                
+                if df is not None and not df.empty:
+                    all_data.append(df)
+                    logger.info(f"✅ 成功获取 {ts_code} 的 {len(df)} 条行情数据")
+                else:
+                    logger.warning(f"⚠️ 未获取到 {ts_code} 的行情数据")
+                
+                # API调用延迟
+                time.sleep(delay)
+                
+            except Exception as e:
+                logger.error(f"❌ 获取 {ts_code} 行情时发生错误: {e}")
+                continue
+        
+        if not all_data:
+            logger.error("未获取到任何指数行情数据")
+            return None
+        
+        # 合并所有数据
+        combined_df = pd.concat(all_data, ignore_index=True)
+        
+        logger.info(f"🎉 主要指数行情数据获取完成！")
+        logger.info(f"   📊 总记录数: {len(combined_df)} 条")
+        logger.info(f"   📈 涉及指数: {combined_df['ts_code'].nunique()} 个")
+        logger.info(f"   📅 日期范围: {combined_df['trade_date'].min()} 到 {combined_df['trade_date'].max()}")
+        
+        return combined_df

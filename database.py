@@ -201,6 +201,85 @@ class StockDatabase:
             logger.error(f"创建同花顺概念指数成分股表失败: {e}")
             return False
     
+    def create_index_basic_table(self):
+        """创建指数基本信息表"""
+        if not self.connection:
+            logger.error("请先连接数据库")
+            return False
+            
+        try:
+            with self.connection.cursor() as cursor:
+                create_table_sql = """
+                CREATE TABLE IF NOT EXISTS index_basic (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    ts_code VARCHAR(20) NOT NULL UNIQUE COMMENT 'TS指数代码',
+                    name VARCHAR(100) NOT NULL COMMENT '简称',
+                    fullname VARCHAR(200) COMMENT '指数全称',
+                    market VARCHAR(10) COMMENT '市场',
+                    publisher VARCHAR(50) COMMENT '发布方',
+                    index_type VARCHAR(50) COMMENT '指数风格',
+                    category VARCHAR(50) COMMENT '指数类别',
+                    base_date DATE COMMENT '基期',
+                    base_point DECIMAL(15,4) COMMENT '基点',
+                    list_date DATE COMMENT '发布日期',
+                    weight_rule VARCHAR(200) COMMENT '加权方式',
+                    description TEXT COMMENT '描述',
+                    exp_date DATE COMMENT '终止日期',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+                    INDEX idx_ts_code (ts_code),
+                    INDEX idx_name (name),
+                    INDEX idx_market (market),
+                    INDEX idx_publisher (publisher),
+                    INDEX idx_category (category),
+                    INDEX idx_list_date (list_date)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='指数基本信息表';
+                """
+                cursor.execute(create_table_sql)
+                self.connection.commit()
+                logger.info("指数基本信息表创建成功")
+                return True
+        except Exception as e:
+            logger.error(f"创建指数基本信息表失败: {e}")
+            return False
+    
+    def create_index_daily_table(self):
+        """创建指数日线行情表"""
+        if not self.connection:
+            logger.error("请先连接数据库")
+            return False
+            
+        try:
+            with self.connection.cursor() as cursor:
+                create_table_sql = """
+                CREATE TABLE IF NOT EXISTS index_daily (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    ts_code VARCHAR(20) NOT NULL COMMENT '指数代码',
+                    trade_date DATE NOT NULL COMMENT '交易日期',
+                    close DECIMAL(15,4) COMMENT '收盘点位',
+                    open DECIMAL(15,4) COMMENT '开盘点位',
+                    high DECIMAL(15,4) COMMENT '最高点位',
+                    low DECIMAL(15,4) COMMENT '最低点位',
+                    pre_close DECIMAL(15,4) COMMENT '昨收盘点位',
+                    change_pct DECIMAL(8,4) COMMENT '涨跌幅(%)',
+                    vol DECIMAL(20,2) COMMENT '成交量(手)',
+                    amount DECIMAL(20,2) COMMENT '成交额(千元)',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+                    UNIQUE KEY unique_index_date (ts_code, trade_date),
+                    INDEX idx_ts_code (ts_code),
+                    INDEX idx_trade_date (trade_date),
+                    INDEX idx_change_pct (change_pct)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='指数日线行情表';
+                """
+                cursor.execute(create_table_sql)
+                self.connection.commit()
+                logger.info("指数日线行情表创建成功")
+                return True
+        except Exception as e:
+            logger.error(f"创建指数日线行情表失败: {e}")
+            return False
+    
     def insert_daily_data(self, df: pd.DataFrame):
         """
         批量插入日线数据
@@ -946,6 +1025,248 @@ class StockDatabase:
         except Exception as e:
             logger.error(f"获取统计信息失败: {e}")
             return {}
+    
+    def insert_index_basic(self, df: pd.DataFrame):
+        """
+        批量插入指数基本信息数据
+        
+        Args:
+            df: 包含指数基本信息的DataFrame
+            
+        Returns:
+            bool: 插入是否成功
+        """
+        if not self.connection:
+            logger.error("请先连接数据库")
+            return False
+        
+        if df.empty:
+            logger.warning("指数基本信息数据为空，跳过插入")
+            return True
+            
+        try:
+            with self.connection.cursor() as cursor:
+                # 准备插入SQL语句
+                insert_sql = """
+                INSERT INTO index_basic 
+                (ts_code, name, fullname, market, publisher, index_type, category, 
+                 base_date, base_point, list_date, weight_rule, description, exp_date)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                name=VALUES(name), fullname=VALUES(fullname), market=VALUES(market),
+                publisher=VALUES(publisher), index_type=VALUES(index_type), 
+                category=VALUES(category), base_date=VALUES(base_date),
+                base_point=VALUES(base_point), list_date=VALUES(list_date),
+                weight_rule=VALUES(weight_rule), description=VALUES(description),
+                exp_date=VALUES(exp_date), updated_at=CURRENT_TIMESTAMP
+                """
+                
+                # 准备数据
+                data_list = []
+                for _, row in df.iterrows():
+                    data_list.append((
+                        row.get('ts_code'),
+                        row.get('name') if pd.notna(row.get('name')) else None,
+                        row.get('fullname') if pd.notna(row.get('fullname')) else None,
+                        row.get('market') if pd.notna(row.get('market')) else None,
+                        row.get('publisher') if pd.notna(row.get('publisher')) else None,
+                        row.get('index_type') if pd.notna(row.get('index_type')) else None,
+                        row.get('category') if pd.notna(row.get('category')) else None,
+                        row.get('base_date') if pd.notna(row.get('base_date')) else None,
+                        row.get('base_point') if pd.notna(row.get('base_point')) else None,
+                        row.get('list_date') if pd.notna(row.get('list_date')) else None,
+                        row.get('weight_rule') if pd.notna(row.get('weight_rule')) else None,
+                        row.get('desc') if pd.notna(row.get('desc')) else None,
+                        row.get('exp_date') if pd.notna(row.get('exp_date')) else None,
+                    ))
+                
+                # 批量执行插入
+                cursor.executemany(insert_sql, data_list)
+                self.connection.commit()
+                
+                logger.info(f"成功插入/更新 {len(data_list)} 条指数基本信息记录")
+                return True
+                
+        except Exception as e:
+            logger.error(f"插入指数基本信息失败: {e}")
+            self.connection.rollback()
+            return False
+    
+    def insert_index_daily(self, df: pd.DataFrame):
+        """
+        批量插入指数日线行情数据
+        
+        Args:
+            df: 包含指数日线行情的DataFrame
+            
+        Returns:
+            bool: 插入是否成功
+        """
+        if not self.connection:
+            logger.error("请先连接数据库")
+            return False
+        
+        if df.empty:
+            logger.warning("指数日线行情数据为空，跳过插入")
+            return True
+            
+        try:
+            with self.connection.cursor() as cursor:
+                # 准备插入SQL语句
+                insert_sql = """
+                INSERT INTO index_daily 
+                (ts_code, trade_date, close, open, high, low, pre_close, 
+                 change_pct, vol, amount)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                close=VALUES(close), open=VALUES(open), high=VALUES(high),
+                low=VALUES(low), pre_close=VALUES(pre_close),
+                change_pct=VALUES(change_pct), vol=VALUES(vol),
+                amount=VALUES(amount), updated_at=CURRENT_TIMESTAMP
+                """
+                
+                # 准备数据
+                data_list = []
+                for _, row in df.iterrows():
+                    data_list.append((
+                        row.get('ts_code'),
+                        row.get('trade_date'),
+                        row.get('close') if pd.notna(row.get('close')) else None,
+                        row.get('open') if pd.notna(row.get('open')) else None,
+                        row.get('high') if pd.notna(row.get('high')) else None,
+                        row.get('low') if pd.notna(row.get('low')) else None,
+                        row.get('pre_close') if pd.notna(row.get('pre_close')) else None,
+                        row.get('pct_chg') if pd.notna(row.get('pct_chg')) else None,
+                        row.get('vol') if pd.notna(row.get('vol')) else None,
+                        row.get('amount') if pd.notna(row.get('amount')) else None,
+                    ))
+                
+                # 批量执行插入
+                cursor.executemany(insert_sql, data_list)
+                self.connection.commit()
+                
+                logger.info(f"成功插入/更新 {len(data_list)} 条指数日线行情记录")
+                return True
+                
+        except Exception as e:
+            logger.error(f"插入指数日线行情失败: {e}")
+            self.connection.rollback()
+            return False
+    
+    def query_index_basic(self, ts_code: str = None, market: str = None, 
+                         publisher: str = None, category: str = None,
+                         limit: int = None) -> Optional[pd.DataFrame]:
+        """
+        查询指数基本信息数据
+        
+        Args:
+            ts_code: 指数代码
+            market: 市场类型
+            publisher: 发布商
+            category: 指数类别
+            limit: 限制返回条数
+            
+        Returns:
+            pd.DataFrame: 查询结果
+        """
+        if not self.connection:
+            logger.error("请先连接数据库")
+            return None
+            
+        try:
+            conditions = []
+            params = []
+            
+            if ts_code:
+                conditions.append("ts_code = %s")
+                params.append(ts_code)
+            
+            if market:
+                conditions.append("market = %s")
+                params.append(market)
+                
+            if publisher:
+                conditions.append("publisher = %s")
+                params.append(publisher)
+            
+            if category:
+                conditions.append("category = %s")
+                params.append(category)
+            
+            where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
+            limit_clause = f"LIMIT {limit}" if limit else ""
+            
+            query_sql = f"""
+            SELECT ts_code, name, fullname, market, publisher, index_type, 
+                   category, base_date, base_point, list_date, weight_rule, 
+                   description, exp_date, created_at, updated_at
+            FROM index_basic
+            {where_clause}
+            ORDER BY market, list_date DESC
+            {limit_clause}
+            """
+            
+            df = pd.read_sql(query_sql, self.connection, params=params)
+            logger.info(f"查询到 {len(df)} 条指数基本信息记录")
+            return df
+            
+        except Exception as e:
+            logger.error(f"查询指数基本信息数据失败: {e}")
+            return None
+    
+    def query_index_daily(self, ts_code: str = None, start_date: str = None, 
+                         end_date: str = None, limit: int = None) -> Optional[pd.DataFrame]:
+        """
+        查询指数日线行情数据
+        
+        Args:
+            ts_code: 指数代码
+            start_date: 开始日期
+            end_date: 结束日期
+            limit: 限制返回条数
+            
+        Returns:
+            pd.DataFrame: 查询结果
+        """
+        if not self.connection:
+            logger.error("请先连接数据库")
+            return None
+            
+        try:
+            conditions = []
+            params = []
+            
+            if ts_code:
+                conditions.append("ts_code = %s")
+                params.append(ts_code)
+            
+            if start_date:
+                conditions.append("trade_date >= %s")
+                params.append(start_date)
+                
+            if end_date:
+                conditions.append("trade_date <= %s")
+                params.append(end_date)
+            
+            where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
+            limit_clause = f"LIMIT {limit}" if limit else ""
+            
+            query_sql = f"""
+            SELECT ts_code, trade_date, close, open, high, low, pre_close,
+                   change_pct, vol, amount, created_at, updated_at
+            FROM index_daily
+            {where_clause}
+            ORDER BY trade_date DESC, ts_code
+            {limit_clause}
+            """
+            
+            df = pd.read_sql(query_sql, self.connection, params=params)
+            logger.info(f"查询到 {len(df)} 条指数日线行情记录")
+            return df
+            
+        except Exception as e:
+            logger.error(f"查询指数日线行情数据失败: {e}")
+            return None
     
     def __enter__(self):
         """上下文管理器入口"""
