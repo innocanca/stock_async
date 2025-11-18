@@ -35,15 +35,8 @@ from database import StockDatabase
 from fetcher import StockDataFetcher
 
 # 配置日志
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('init_ths_member.log', encoding='utf-8'),
-        logging.StreamHandler(sys.stdout)
-    ]
-)
-logger = logging.getLogger(__name__)
+from log_config import get_logger
+logger = get_logger(__name__)
 
 
 def create_database_tables(db: StockDatabase) -> bool:

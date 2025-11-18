@@ -19,7 +19,8 @@ from utils import (
 from fetcher import StockDataFetcher
 from database import StockDatabase
 
-logger = logging.getLogger(__name__)
+from log_config import get_logger
+logger = get_logger(__name__)
 
 
 class StockDataCLI:
@@ -585,7 +586,7 @@ class StockDataCLI:
         script_path = os.path.abspath(sys.argv[0])
         script_dir = os.path.dirname(script_path)
         python_path = sys.executable
-        log_file = os.path.join(script_dir, "daily_sync.log")
+        log_file = os.path.join(script_dir, )
         
         print("🔧 Linux Cron 定时任务配置")
         print("=" * 80)

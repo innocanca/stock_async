@@ -17,8 +17,9 @@ import os
 from fetcher import StockDataFetcher
 from database import StockDatabase
 from utils import format_date, get_special_operations
+from log_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class StockDataScheduler:
@@ -201,6 +202,79 @@ class StockDataScheduler:
             logger.error(f"同步 {target_date} 数据时发生错误: {e}")
             return False
     
+    def sync_weekly_data(self, stocks: List[str] = None, weeks_back: int = 4) -> bool:
+        """
+        同步股票周线数据
+        
+        Args:
+            stocks: 股票代码列表，None表示获取主板股票
+            weeks_back: 回溯周数，默认4周
+            
+        Returns:
+            bool: 同步是否成功
+        """
+        try:
+            start_time = time.time()
+            
+            # 计算日期范围
+            end_date = datetime.now()
+            start_date = end_date - timedelta(weeks=weeks_back)
+            
+            start_date_str = start_date.strftime('%Y%m%d')
+            end_date_str = end_date.strftime('%Y%m%d')
+            
+            logger.info(f"🔄 开始同步股票周线数据...")
+            logger.info(f"📅 时间范围: {start_date_str} 至 {end_date_str}")
+            
+            self.initialize_fetcher()
+            
+            # 确定股票列表
+            if stocks is None:
+                stocks = self.fetcher.get_main_board_stocks()
+                if not stocks:
+                    logger.error("无法获取主板股票列表")
+                    return False
+            
+            logger.info(f"📈 准备同步 {len(stocks)} 只股票的周线数据")
+            
+            # 获取周线数据
+            df = self.fetcher.get_multiple_stocks_weekly_data(
+                stock_codes=stocks,
+                start_date=start_date_str,
+                end_date=end_date_str,
+                batch_size=50,
+                delay=0.2
+            )
+            
+            if df is None or df.empty:
+                logger.warning("未获取到任何周线数据")
+                return False
+            
+            # 保存到数据库
+            with self.db:
+                success = self.db.insert_weekly_data(df)
+                
+                if success:
+                    end_time = time.time()
+                    duration = end_time - start_time
+                    
+                    successful_stocks = df['ts_code'].nunique()
+                    total_records = len(df)
+                    
+                    logger.info(f"✅ 周线数据同步成功!")
+                    logger.info(f"📊 成功股票: {successful_stocks} 只")
+                    logger.info(f"📊 总记录数: {total_records} 条")
+                    logger.info(f"⏱️  耗时: {duration:.2f} 秒")
+                    
+                    return True
+                else:
+                    logger.error("❌ 周线数据保存失败")
+                    return False
+                    
+        except Exception as e:
+            logger.error(f"周线数据同步异常: {e}")
+            return False
+    
     def schedule_daily_sync(self):
         """设置每日定时同步"""
         schedule.clear()  # 清除之前的任务
@@ -217,6 +291,11 @@ class StockDataScheduler:
             schedule.every().thursday.at(self.sync_time).do(self.sync_daily_data)
             schedule.every().friday.at(self.sync_time).do(self.sync_daily_data)
             logger.info(f"📅 已设置工作日 {self.sync_time} 自动同步（周末不同步）")
+        
+        # 设置周线数据同步（每周日晚上执行）
+        weekly_sync_time = "19:00"  # 周线同步时间设为19:00，避免与日线同步冲突
+        schedule.every().sunday.at(weekly_sync_time).do(self.sync_weekly_data)
+        logger.info(f"📅 已设置每周日 {weekly_sync_time} 自动同步周线数据")
     
     def run_daemon(self):
         """运行守护进程模式"""

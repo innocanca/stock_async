@@ -10,9 +10,9 @@ from typing import Optional, List
 import logging
 from config import MYSQL_CONFIG
 
-# 配置日志
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+# 使用统一日志配置
+from log_config import get_logger
+logger = get_logger(__name__)
 
 
 class StockDatabase:
@@ -97,6 +97,43 @@ class StockDatabase:
                 return True
         except Exception as e:
             logger.error(f"创建日线数据表失败: {e}")
+            return False
+    
+    def create_weekly_table(self):
+        """创建周线数据表"""
+        if not self.connection:
+            logger.error("请先连接数据库")
+            return False
+            
+        try:
+            with self.connection.cursor() as cursor:
+                create_table_sql = """
+                CREATE TABLE IF NOT EXISTS weekly_data (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    ts_code VARCHAR(20) NOT NULL COMMENT '股票代码',
+                    trade_date DATE NOT NULL COMMENT '交易日期(周)',
+                    open DECIMAL(10,2) COMMENT '周开盘价',
+                    high DECIMAL(10,2) COMMENT '周最高价',
+                    low DECIMAL(10,2) COMMENT '周最低价',
+                    close DECIMAL(10,2) COMMENT '周收盘价',
+                    pre_close DECIMAL(10,2) COMMENT '上一周收盘价',
+                    change_amount DECIMAL(10,2) COMMENT '周涨跌额',
+                    pct_chg DECIMAL(8,4) COMMENT '周涨跌幅(%)',
+                    vol DECIMAL(15,2) COMMENT '周成交量',
+                    amount DECIMAL(20,2) COMMENT '周成交额',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+                    UNIQUE KEY unique_stock_week (ts_code, trade_date),
+                    INDEX idx_ts_code (ts_code),
+                    INDEX idx_trade_date (trade_date)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='股票周线数据表';
+                """
+                cursor.execute(create_table_sql)
+                self.connection.commit()
+                logger.info("周线数据表创建成功")
+                return True
+        except Exception as e:
+            logger.error(f"创建周线数据表失败: {e}")
             return False
     
     def create_stock_basic_table(self):
@@ -342,6 +379,68 @@ class StockDatabase:
             self.connection.rollback()
             return False
     
+    def insert_weekly_data(self, df: pd.DataFrame):
+        """
+        批量插入周线数据
+        
+        Args:
+            df: 包含周线数据的DataFrame
+        
+        Returns:
+            bool: 插入是否成功
+        """
+        if not self.connection:
+            logger.error("请先连接数据库")
+            return False
+        
+        if df.empty:
+            logger.warning("数据为空，跳过插入")
+            return True
+            
+        try:
+            with self.connection.cursor() as cursor:
+                # 准备插入SQL语句
+                insert_sql = """
+                INSERT INTO weekly_data 
+                (ts_code, trade_date, open, high, low, close, pre_close, 
+                 change_amount, pct_chg, vol, amount)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                open=VALUES(open), high=VALUES(high), low=VALUES(low), 
+                close=VALUES(close), pre_close=VALUES(pre_close),
+                change_amount=VALUES(change_amount), pct_chg=VALUES(pct_chg),
+                vol=VALUES(vol), amount=VALUES(amount), updated_at=CURRENT_TIMESTAMP
+                """
+                
+                # 准备数据
+                data_list = []
+                for _, row in df.iterrows():
+                    data_list.append((
+                        row['ts_code'],
+                        row['trade_date'],
+                        row['open'] if pd.notna(row['open']) else None,
+                        row['high'] if pd.notna(row['high']) else None,
+                        row['low'] if pd.notna(row['low']) else None,
+                        row['close'] if pd.notna(row['close']) else None,
+                        row['pre_close'] if pd.notna(row['pre_close']) else None,
+                        row['change'] if pd.notna(row['change']) else None,
+                        row['pct_chg'] if pd.notna(row['pct_chg']) else None,
+                        row['vol'] if pd.notna(row['vol']) else None,
+                        row['amount'] if pd.notna(row['amount']) else None,
+                    ))
+                
+                # 批量执行插入
+                cursor.executemany(insert_sql, data_list)
+                self.connection.commit()
+                
+                logger.info(f"成功插入/更新 {len(data_list)} 条周线数据记录")
+                return True
+                
+        except Exception as e:
+            logger.error(f"插入周线数据失败: {e}")
+            self.connection.rollback()
+            return False
+    
     def insert_stock_basic(self, df: pd.DataFrame):
         """
         批量插入股票基础信息
@@ -560,6 +659,60 @@ class StockDatabase:
             
         except Exception as e:
             logger.error(f"查询数据失败: {e}")
+            return None
+    
+    def query_weekly_data(self, ts_code: str = None, start_date: str = None, 
+                         end_date: str = None, limit: int = None) -> Optional[pd.DataFrame]:
+        """
+        查询股票周线数据
+        
+        Args:
+            ts_code: 股票代码
+            start_date: 开始日期
+            end_date: 结束日期
+            limit: 限制返回条数
+            
+        Returns:
+            pd.DataFrame: 查询结果
+        """
+        if not self.connection:
+            logger.error("请先连接数据库")
+            return None
+            
+        try:
+            conditions = []
+            params = []
+            
+            if ts_code:
+                conditions.append("ts_code = %s")
+                params.append(ts_code)
+            
+            if start_date:
+                conditions.append("trade_date >= %s")
+                params.append(start_date)
+                
+            if end_date:
+                conditions.append("trade_date <= %s")
+                params.append(end_date)
+            
+            where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
+            limit_clause = f"LIMIT {limit}" if limit else ""
+            
+            query_sql = f"""
+            SELECT ts_code, trade_date, open, high, low, close, pre_close,
+                   change_amount, pct_chg, vol, amount, created_at, updated_at
+            FROM weekly_data
+            {where_clause}
+            ORDER BY trade_date DESC, ts_code
+            {limit_clause}
+            """
+            
+            df = pd.read_sql(query_sql, self.connection, params=params)
+            logger.info(f"查询到 {len(df)} 条周线记录")
+            return df
+            
+        except Exception as e:
+            logger.error(f"查询周线数据失败: {e}")
             return None
     
     def get_limit_up_stocks(self, trade_date: str = None, min_pct: float = None) -> Optional[pd.DataFrame]:

@@ -11,8 +11,9 @@ from datetime import datetime, timedelta
 from typing import List, Optional
 
 from config import TUSHARE_TOKEN
+from log_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class StockDataFetcher:
@@ -70,6 +71,43 @@ class StockDataFetcher:
             logger.error(f"获取 {ts_code} 日线数据失败: {e}")
             return None
     
+    def get_weekly_data(self, ts_code: str, start_date: str = None, 
+                       end_date: str = None) -> Optional[pd.DataFrame]:
+        """
+        获取单只股票的周线数据
+        
+        Args:
+            ts_code: 股票代码（如：000001.SZ）
+            start_date: 开始日期（YYYYMMDD格式）
+            end_date: 结束日期（YYYYMMDD格式）
+            
+        Returns:
+            pd.DataFrame: 周线数据
+        """
+        try:
+            logger.info(f"正在获取 {ts_code} 的周线数据...")
+            
+            # 获取周线数据
+            df = self.pro.weekly(
+                ts_code=ts_code,
+                start_date=start_date,
+                end_date=end_date
+            )
+            
+            if df.empty:
+                logger.warning(f"股票 {ts_code} 在指定日期范围内没有周线数据")
+                return None
+            
+            # 数据预处理
+            df['trade_date'] = pd.to_datetime(df['trade_date'], format='%Y%m%d')
+            
+            logger.info(f"成功获取 {ts_code} 的 {len(df)} 条周线数据")
+            return df
+            
+        except Exception as e:
+            logger.error(f"获取 {ts_code} 周线数据失败: {e}")
+            return None
+    
     def get_multiple_stocks_data(self, stock_codes: List[str], 
                                 start_date: str = None, end_date: str = None,
                                 batch_size: int = 50, delay: float = 0.5) -> pd.DataFrame:
@@ -124,6 +162,64 @@ class StockDataFetcher:
         combined_df = pd.concat(all_data, ignore_index=True)
         success_rate = len(all_data) / total_stocks * 100
         logger.info(f"批量获取完成！总共获取了 {len(combined_df)} 条股票数据记录")
+        logger.info(f"成功率: {len(all_data)}/{total_stocks} ({success_rate:.1f}%)")
+        
+        return combined_df
+    
+    def get_multiple_stocks_weekly_data(self, stock_codes: List[str], 
+                                       start_date: str = None, end_date: str = None,
+                                       batch_size: int = 50, delay: float = 0.5) -> pd.DataFrame:
+        """
+        批量获取多只股票的周线数据
+        
+        Args:
+            stock_codes: 股票代码列表
+            start_date: 开始日期
+            end_date: 结束日期
+            batch_size: 批次大小，防止API调用过于频繁
+            delay: 每次调用的延迟时间（秒）
+            
+        Returns:
+            pd.DataFrame: 合并后的周线数据
+        """
+        all_data = []
+        total_stocks = len(stock_codes)
+        
+        logger.info(f"开始批量获取 {total_stocks} 只股票周线数据，批次大小: {batch_size}")
+        
+        for i, ts_code in enumerate(stock_codes, 1):
+            try:
+                # 获取单只股票周线数据
+                df = self.get_weekly_data(ts_code, start_date, end_date)
+                if df is not None and not df.empty:
+                    all_data.append(df)
+                
+                # 显示进度
+                if i % 10 == 0 or i == total_stocks:
+                    success_count = len(all_data)
+                    logger.info(f"进度: {i}/{total_stocks} ({i/total_stocks*100:.1f}%), 成功获取: {success_count}只")
+                
+                # 避免频繁调用API，适当休眠
+                import time
+                time.sleep(delay)
+                
+                # 每批次后稍长休眠
+                if i % batch_size == 0:
+                    logger.info(f"完成第 {i//batch_size} 批次，休眠2秒...")
+                    time.sleep(2.0)
+                
+            except Exception as e:
+                logger.error(f"获取股票 {ts_code} 周线数据时发生错误: {e}")
+                continue
+        
+        if not all_data:
+            logger.warning("没有获取到任何股票周线数据")
+            return pd.DataFrame()
+        
+        # 合并所有数据
+        combined_df = pd.concat(all_data, ignore_index=True)
+        success_rate = len(all_data) / total_stocks * 100
+        logger.info(f"批量获取周线数据完成！总共获取了 {len(combined_df)} 条周线数据记录")
         logger.info(f"成功率: {len(all_data)}/{total_stocks} ({success_rate:.1f}%)")
         
         return combined_df
