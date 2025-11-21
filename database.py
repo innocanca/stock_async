@@ -1306,6 +1306,244 @@ class StockDatabase:
             self.connection.rollback()
             return False
     
+    def insert_income_data(self, df: pd.DataFrame):
+        """
+        批量插入利润表数据
+        
+        Args:
+            df: 包含利润表数据的DataFrame
+            
+        Returns:
+            bool: 插入是否成功
+        """
+        if not self.connection:
+            logger.error("请先连接数据库")
+            return False
+        
+        if df.empty:
+            logger.warning("利润表数据为空，跳过插入")
+            return True
+            
+        try:
+            with self.connection.cursor() as cursor:
+                # 准备插入SQL语句（包含主要字段）
+                insert_sql = """
+                INSERT INTO income_data 
+                (ts_code, ann_date, f_ann_date, end_date, report_type, comp_type,
+                 basic_eps, diluted_eps, total_revenue, revenue, n_income, n_income_attr_p,
+                 total_profit, operate_profit, oper_cost, sell_exp, admin_exp, fin_exp,
+                 assets_impair_loss, rd_exp, ebit, ebitda, update_flag)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                basic_eps=VALUES(basic_eps), diluted_eps=VALUES(diluted_eps),
+                total_revenue=VALUES(total_revenue), revenue=VALUES(revenue),
+                n_income=VALUES(n_income), n_income_attr_p=VALUES(n_income_attr_p),
+                total_profit=VALUES(total_profit), operate_profit=VALUES(operate_profit),
+                oper_cost=VALUES(oper_cost), sell_exp=VALUES(sell_exp),
+                admin_exp=VALUES(admin_exp), fin_exp=VALUES(fin_exp),
+                assets_impair_loss=VALUES(assets_impair_loss), rd_exp=VALUES(rd_exp),
+                ebit=VALUES(ebit), ebitda=VALUES(ebitda),
+                update_flag=VALUES(update_flag), updated_at=CURRENT_TIMESTAMP
+                """
+                
+                # 准备数据，处理日期格式
+                data_list = []
+                for _, row in df.iterrows():
+                    # 处理日期字段，将NaT转换为None
+                    def safe_date(date_val):
+                        if pd.isna(date_val) or date_val == 'NaT':
+                            return None
+                        return date_val
+                    
+                    data_list.append((
+                        row.get('ts_code'),
+                        safe_date(row.get('ann_date')),
+                        safe_date(row.get('f_ann_date')),
+                        safe_date(row.get('end_date')),
+                        row.get('report_type'),
+                        row.get('comp_type'),
+                        row.get('basic_eps') if pd.notna(row.get('basic_eps')) else None,
+                        row.get('diluted_eps') if pd.notna(row.get('diluted_eps')) else None,
+                        row.get('total_revenue') if pd.notna(row.get('total_revenue')) else None,
+                        row.get('revenue') if pd.notna(row.get('revenue')) else None,
+                        row.get('n_income') if pd.notna(row.get('n_income')) else None,
+                        row.get('n_income_attr_p') if pd.notna(row.get('n_income_attr_p')) else None,
+                        row.get('total_profit') if pd.notna(row.get('total_profit')) else None,
+                        row.get('operate_profit') if pd.notna(row.get('operate_profit')) else None,
+                        row.get('oper_cost') if pd.notna(row.get('oper_cost')) else None,
+                        row.get('sell_exp') if pd.notna(row.get('sell_exp')) else None,
+                        row.get('admin_exp') if pd.notna(row.get('admin_exp')) else None,
+                        row.get('fin_exp') if pd.notna(row.get('fin_exp')) else None,
+                        row.get('assets_impair_loss') if pd.notna(row.get('assets_impair_loss')) else None,
+                        row.get('rd_exp') if pd.notna(row.get('rd_exp')) else None,
+                        row.get('ebit') if pd.notna(row.get('ebit')) else None,
+                        row.get('ebitda') if pd.notna(row.get('ebitda')) else None,
+                        row.get('update_flag')
+                    ))
+                
+                # 批量执行插入
+                cursor.executemany(insert_sql, data_list)
+                self.connection.commit()
+                
+                logger.info(f"成功插入/更新 {len(data_list)} 条利润表记录")
+                return True
+                
+        except Exception as e:
+            logger.error(f"插入利润表数据失败: {e}")
+            self.connection.rollback()
+            return False
+    
+    def insert_dividend_data(self, df: pd.DataFrame):
+        """
+        批量插入分红送股数据
+        
+        Args:
+            df: 包含分红送股数据的DataFrame
+            
+        Returns:
+            bool: 插入是否成功
+        """
+        if not self.connection:
+            logger.error("请先连接数据库")
+            return False
+        
+        if df.empty:
+            logger.warning("分红送股数据为空，跳过插入")
+            return True
+            
+        try:
+            with self.connection.cursor() as cursor:
+                # 准备插入SQL语句
+                insert_sql = """
+                INSERT INTO dividend_data 
+                (ts_code, end_date, ann_date, div_proc, stk_div, stk_bo_rate, stk_co_rate,
+                 cash_div, cash_div_tax, record_date, ex_date, pay_date, div_listdate,
+                 imp_ann_date, base_date, base_share)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                div_proc=VALUES(div_proc), stk_div=VALUES(stk_div), stk_bo_rate=VALUES(stk_bo_rate),
+                stk_co_rate=VALUES(stk_co_rate), cash_div=VALUES(cash_div), cash_div_tax=VALUES(cash_div_tax),
+                record_date=VALUES(record_date), ex_date=VALUES(ex_date), pay_date=VALUES(pay_date),
+                div_listdate=VALUES(div_listdate), imp_ann_date=VALUES(imp_ann_date),
+                base_date=VALUES(base_date), base_share=VALUES(base_share), updated_at=CURRENT_TIMESTAMP
+                """
+                
+                # 准备数据，处理日期格式
+                data_list = []
+                for _, row in df.iterrows():
+                    # 处理日期字段，将NaT转换为None
+                    def safe_date(date_val):
+                        if pd.isna(date_val) or date_val == 'NaT':
+                            return None
+                        return date_val
+                    
+                    data_list.append((
+                        row.get('ts_code'),
+                        safe_date(row.get('end_date')),
+                        safe_date(row.get('ann_date')),
+                        row.get('div_proc'),
+                        row.get('stk_div') if pd.notna(row.get('stk_div')) else None,
+                        row.get('stk_bo_rate') if pd.notna(row.get('stk_bo_rate')) else None,
+                        row.get('stk_co_rate') if pd.notna(row.get('stk_co_rate')) else None,
+                        row.get('cash_div') if pd.notna(row.get('cash_div')) else None,
+                        row.get('cash_div_tax') if pd.notna(row.get('cash_div_tax')) else None,
+                        safe_date(row.get('record_date')),
+                        safe_date(row.get('ex_date')),
+                        safe_date(row.get('pay_date')),
+                        safe_date(row.get('div_listdate')),
+                        safe_date(row.get('imp_ann_date')),
+                        safe_date(row.get('base_date')),
+                        row.get('base_share') if pd.notna(row.get('base_share')) else None
+                    ))
+                
+                # 批量执行插入
+                cursor.executemany(insert_sql, data_list)
+                self.connection.commit()
+                
+                logger.info(f"成功插入/更新 {len(data_list)} 条分红送股记录")
+                return True
+                
+        except Exception as e:
+            logger.error(f"插入分红送股数据失败: {e}")
+            self.connection.rollback()
+            return False
+    
+    def insert_cashflow_data(self, df: pd.DataFrame):
+        """
+        批量插入现金流量表数据
+        
+        Args:
+            df: 包含现金流量表数据的DataFrame
+            
+        Returns:
+            bool: 插入是否成功
+        """
+        if not self.connection:
+            logger.error("请先连接数据库")
+            return False
+        
+        if df.empty:
+            logger.warning("现金流量表数据为空，跳过插入")
+            return True
+            
+        try:
+            with self.connection.cursor() as cursor:
+                # 准备插入SQL语句（包含主要字段）
+                insert_sql = """
+                INSERT INTO cashflow_data 
+                (ts_code, ann_date, f_ann_date, end_date, report_type, comp_type,
+                 net_profit, finan_exp, c_fr_sale_sg, n_cashflow_act, n_cashflow_inv_act,
+                 n_cash_flows_fnc_act, n_incr_cash_cash_equ, c_cash_equ_beg_period,
+                 c_cash_equ_end_period, c_paid_goods_s, c_paid_to_for_empl, c_paid_for_taxes,
+                 update_flag)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                net_profit=VALUES(net_profit), finan_exp=VALUES(finan_exp),
+                c_fr_sale_sg=VALUES(c_fr_sale_sg), n_cashflow_act=VALUES(n_cashflow_act),
+                n_cashflow_inv_act=VALUES(n_cashflow_inv_act), n_cash_flows_fnc_act=VALUES(n_cash_flows_fnc_act),
+                n_incr_cash_cash_equ=VALUES(n_incr_cash_cash_equ), c_cash_equ_beg_period=VALUES(c_cash_equ_beg_period),
+                c_cash_equ_end_period=VALUES(c_cash_equ_end_period), c_paid_goods_s=VALUES(c_paid_goods_s),
+                c_paid_to_for_empl=VALUES(c_paid_to_for_empl), c_paid_for_taxes=VALUES(c_paid_for_taxes),
+                update_flag=VALUES(update_flag), updated_at=CURRENT_TIMESTAMP
+                """
+                
+                # 准备数据
+                data_list = []
+                for _, row in df.iterrows():
+                    data_list.append((
+                        row.get('ts_code'),
+                        row.get('ann_date'),
+                        row.get('f_ann_date'),
+                        row.get('end_date'),
+                        row.get('report_type'),
+                        row.get('comp_type'),
+                        row.get('net_profit') if pd.notna(row.get('net_profit')) else None,
+                        row.get('finan_exp') if pd.notna(row.get('finan_exp')) else None,
+                        row.get('c_fr_sale_sg') if pd.notna(row.get('c_fr_sale_sg')) else None,
+                        row.get('n_cashflow_act') if pd.notna(row.get('n_cashflow_act')) else None,
+                        row.get('n_cashflow_inv_act') if pd.notna(row.get('n_cashflow_inv_act')) else None,
+                        row.get('n_cash_flows_fnc_act') if pd.notna(row.get('n_cash_flows_fnc_act')) else None,
+                        row.get('n_incr_cash_cash_equ') if pd.notna(row.get('n_incr_cash_cash_equ')) else None,
+                        row.get('c_cash_equ_beg_period') if pd.notna(row.get('c_cash_equ_beg_period')) else None,
+                        row.get('c_cash_equ_end_period') if pd.notna(row.get('c_cash_equ_end_period')) else None,
+                        row.get('c_paid_goods_s') if pd.notna(row.get('c_paid_goods_s')) else None,
+                        row.get('c_paid_to_for_empl') if pd.notna(row.get('c_paid_to_for_empl')) else None,
+                        row.get('c_paid_for_taxes') if pd.notna(row.get('c_paid_for_taxes')) else None,
+                        row.get('update_flag')
+                    ))
+                
+                # 批量执行插入
+                cursor.executemany(insert_sql, data_list)
+                self.connection.commit()
+                
+                logger.info(f"成功插入/更新 {len(data_list)} 条现金流量表记录")
+                return True
+                
+        except Exception as e:
+            logger.error(f"插入现金流量表数据失败: {e}")
+            self.connection.rollback()
+            return False
+    
     def query_index_basic(self, ts_code: str = None, market: str = None, 
                          publisher: str = None, category: str = None,
                          limit: int = None) -> Optional[pd.DataFrame]:
@@ -1420,6 +1658,278 @@ class StockDatabase:
         except Exception as e:
             logger.error(f"查询指数日线行情数据失败: {e}")
             return None
+    
+    def create_income_table(self):
+        """创建利润表数据表"""
+        if not self.connection:
+            logger.error("请先连接数据库")
+            return False
+            
+        try:
+            with self.connection.cursor() as cursor:
+                create_table_sql = """
+                CREATE TABLE IF NOT EXISTS income_data (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    ts_code VARCHAR(20) NOT NULL COMMENT '股票代码',
+                    ann_date DATE COMMENT '公告日期',
+                    f_ann_date DATE COMMENT '实际公告日期',
+                    end_date DATE NOT NULL COMMENT '报告期',
+                    report_type TINYINT COMMENT '报表类型',
+                    comp_type TINYINT COMMENT '公司类型',
+                    basic_eps DECIMAL(10,4) COMMENT '基本每股收益',
+                    diluted_eps DECIMAL(10,4) COMMENT '稀释每股收益',
+                    total_revenue DECIMAL(20,2) COMMENT '营业总收入',
+                    revenue DECIMAL(20,2) COMMENT '营业收入',
+                    int_income DECIMAL(20,2) COMMENT '利息收入',
+                    prem_earned DECIMAL(20,2) COMMENT '已赚保费',
+                    comm_income DECIMAL(20,2) COMMENT '手续费及佣金收入',
+                    n_commis_income DECIMAL(20,2) COMMENT '手续费及佣金净收入',
+                    n_oth_income DECIMAL(20,2) COMMENT '其他经营净收益',
+                    n_oth_b_income DECIMAL(20,2) COMMENT '加:其他业务净收益',
+                    prem_income DECIMAL(20,2) COMMENT '保险业务收入',
+                    out_prem DECIMAL(20,2) COMMENT '其中:分出保费',
+                    une_prem_reser DECIMAL(20,2) COMMENT '提取未到期责任准备金',
+                    reins_income DECIMAL(20,2) COMMENT '其中:分保费收入',
+                    n_sec_tb_income DECIMAL(20,2) COMMENT '代理买卖证券业务净收入',
+                    n_sec_uw_income DECIMAL(20,2) COMMENT '证券承销业务净收入',
+                    n_asset_mg_income DECIMAL(20,2) COMMENT '受托客户资产管理业务净收入',
+                    oth_b_income DECIMAL(20,2) COMMENT '其他业务收入',
+                    fv_value_chg_gain DECIMAL(20,2) COMMENT '公允价值变动收益',
+                    invest_income DECIMAL(20,2) COMMENT '投资净收益',
+                    ass_invest_income DECIMAL(20,2) COMMENT '其中:联营企业和合营企业的投资收益',
+                    forex_gain DECIMAL(20,2) COMMENT '汇兑收益',
+                    total_cogs DECIMAL(20,2) COMMENT '营业总成本',
+                    oper_cost DECIMAL(20,2) COMMENT '减:营业成本',
+                    int_exp DECIMAL(20,2) COMMENT '利息支出',
+                    comm_exp DECIMAL(20,2) COMMENT '手续费及佣金支出',
+                    biz_tax_surchg DECIMAL(20,2) COMMENT '营业税金及附加',
+                    sell_exp DECIMAL(20,2) COMMENT '销售费用',
+                    admin_exp DECIMAL(20,2) COMMENT '管理费用',
+                    fin_exp DECIMAL(20,2) COMMENT '财务费用',
+                    assets_impair_loss DECIMAL(20,2) COMMENT '资产减值损失',
+                    prem_refund DECIMAL(20,2) COMMENT '退保金',
+                    compens_payout DECIMAL(20,2) COMMENT '赔付支出净额',
+                    reser_insur_liab DECIMAL(20,2) COMMENT '提取保险责任准备金',
+                    div_payt DECIMAL(20,2) COMMENT '保户红利支出',
+                    reins_exp DECIMAL(20,2) COMMENT '分保费用',
+                    oper_exp DECIMAL(20,2) COMMENT '营业支出',
+                    compens_payout_refu DECIMAL(20,2) COMMENT '摊回赔付支出',
+                    insur_reser_refu DECIMAL(20,2) COMMENT '摊回保险责任准备金',
+                    reins_cost_refund DECIMAL(20,2) COMMENT '摊回分保费用',
+                    other_bus_cost DECIMAL(20,2) COMMENT '其他业务成本',
+                    operate_profit DECIMAL(20,2) COMMENT '营业利润',
+                    non_oper_income DECIMAL(20,2) COMMENT '加:营业外收入',
+                    non_oper_exp DECIMAL(20,2) COMMENT '减:营业外支出',
+                    nca_disploss DECIMAL(20,2) COMMENT '其中:减:非流动资产处置净损失',
+                    total_profit DECIMAL(20,2) COMMENT '利润总额',
+                    income_tax DECIMAL(20,2) COMMENT '所得税费用',
+                    n_income DECIMAL(20,2) COMMENT '净利润(含少数股东损益)',
+                    n_income_attr_p DECIMAL(20,2) COMMENT '净利润(不含少数股东损益)',
+                    minority_gain DECIMAL(20,2) COMMENT '少数股东损益',
+                    oth_compr_income DECIMAL(20,2) COMMENT '其他综合收益',
+                    t_compr_income DECIMAL(20,2) COMMENT '综合收益总额',
+                    compr_inc_attr_p DECIMAL(20,2) COMMENT '归属于母公司(或股东)的综合收益总额',
+                    compr_inc_attr_m_s DECIMAL(20,2) COMMENT '归属于少数股东的综合收益总额',
+                    ebit DECIMAL(20,2) COMMENT '息税前利润',
+                    ebitda DECIMAL(20,2) COMMENT '息税折旧摊销前利润',
+                    insurance_exp DECIMAL(20,2) COMMENT '保险业务支出',
+                    undist_profit DECIMAL(20,2) COMMENT '年初未分配利润',
+                    distable_profit DECIMAL(20,2) COMMENT '可分配利润',
+                    rd_exp DECIMAL(20,2) COMMENT '研发费用',
+                    fin_exp_int_exp DECIMAL(20,2) COMMENT '财务费用:利息费用',
+                    fin_exp_int_inc DECIMAL(20,2) COMMENT '财务费用:利息收入',
+                    transfer_surplus_rese DECIMAL(20,2) COMMENT '转入盈余公积',
+                    transfer_housing_imprest DECIMAL(20,2) COMMENT '转入住房周转金',
+                    transfer_oth DECIMAL(20,2) COMMENT '其他转入',
+                    adj_lossgain DECIMAL(20,2) COMMENT '调整以前年度损益',
+                    withdra_legal_surplus DECIMAL(20,2) COMMENT '提取法定盈余公积',
+                    withdra_legal_pubfund DECIMAL(20,2) COMMENT '提取法定公益金',
+                    withdra_biz_devfund DECIMAL(20,2) COMMENT '提取企业发展基金',
+                    workers_welfare DECIMAL(20,2) COMMENT '职工奖金福利',
+                    distr_profit_shrhder DECIMAL(20,2) COMMENT '可供股东分配的利润',
+                    prfshare_payable_dvd DECIMAL(20,2) COMMENT '应付优先股股利',
+                    comshare_payable_dvd DECIMAL(20,2) COMMENT '应付普通股股利',
+                    capit_comstock_div DECIMAL(20,2) COMMENT '转作股本的普通股股利',
+                    net_after_nr_lp_correct DECIMAL(20,2) COMMENT '扣除非经常性损益后的净利润',
+                    credit_impa_loss DECIMAL(20,2) COMMENT '信用减值损失',
+                    net_expo_hedging_benefits DECIMAL(20,2) COMMENT '净敞口套期收益',
+                    oth_impair_loss_assets DECIMAL(20,2) COMMENT '其他资产减值损失',
+                    total_opcost DECIMAL(20,2) COMMENT '营业总成本',
+                    amodcost_fin_assets DECIMAL(20,2) COMMENT '以摊余成本计量的金融资产终止确认收益',
+                    oth_income DECIMAL(20,2) COMMENT '其他收益',
+                    asset_disp_income DECIMAL(20,2) COMMENT '资产处置收益',
+                    continued_net_profit DECIMAL(20,2) COMMENT '持续经营净利润',
+                    end_net_profit DECIMAL(20,2) COMMENT '终止经营净利润',
+                    update_flag VARCHAR(10) COMMENT '更新标识',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+                    UNIQUE KEY unique_stock_period (ts_code, end_date, report_type),
+                    INDEX idx_ts_code (ts_code),
+                    INDEX idx_end_date (end_date),
+                    INDEX idx_ann_date (ann_date)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='股票利润表数据表';
+                """
+                cursor.execute(create_table_sql)
+                self.connection.commit()
+                logger.info("利润表数据表创建成功")
+                return True
+        except Exception as e:
+            logger.error(f"创建利润表数据表失败: {e}")
+            return False
+    
+    def create_cashflow_table(self):
+        """创建现金流量表数据表"""
+        if not self.connection:
+            logger.error("请先连接数据库")
+            return False
+            
+        try:
+            with self.connection.cursor() as cursor:
+                create_table_sql = """
+                CREATE TABLE IF NOT EXISTS cashflow_data (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    ts_code VARCHAR(20) NOT NULL COMMENT '股票代码',
+                    ann_date DATE COMMENT '公告日期',
+                    f_ann_date DATE COMMENT '实际公告日期',
+                    end_date DATE NOT NULL COMMENT '报告期',
+                    report_type TINYINT COMMENT '报表类型',
+                    comp_type TINYINT COMMENT '公司类型',
+                    net_profit DECIMAL(20,2) COMMENT '净利润',
+                    finan_exp DECIMAL(20,2) COMMENT '财务费用',
+                    c_fr_sale_sg DECIMAL(20,2) COMMENT '销售商品、提供劳务收到的现金',
+                    recp_tax_rends DECIMAL(20,2) COMMENT '收到的税费返还',
+                    n_depos_incr_fi DECIMAL(20,2) COMMENT '客户存款和同业存放款项净增加额',
+                    n_incr_loans_cb DECIMAL(20,2) COMMENT '向中央银行借款净增加额',
+                    n_inc_borr_oth_fi DECIMAL(20,2) COMMENT '向其他金融机构拆入资金净增加额',
+                    prem_fr_orig_contr DECIMAL(20,2) COMMENT '收到原保险合同保费取得的现金',
+                    n_incr_insured_dep DECIMAL(20,2) COMMENT '保户储金净增加额',
+                    n_reinsur_prem DECIMAL(20,2) COMMENT '收到再保业务现金净额',
+                    n_incr_disp_tfa DECIMAL(20,2) COMMENT '处置交易性金融资产净增加额',
+                    ifc_cash_incr DECIMAL(20,2) COMMENT '收取利息和手续费的现金',
+                    n_incr_disp_faas DECIMAL(20,2) COMMENT '处置可供出售金融资产净增加额',
+                    n_incr_disc_rec DECIMAL(20,2) COMMENT '拆入资金净增加额',
+                    c_fr_oth_operate_a DECIMAL(20,2) COMMENT '收到其他与经营活动有关的现金',
+                    c_inf_fr_operate_a DECIMAL(20,2) COMMENT '经营活动现金流入小计',
+                    c_paid_goods_s DECIMAL(20,2) COMMENT '购买商品、接受劳务支付的现金',
+                    c_paid_to_for_empl DECIMAL(20,2) COMMENT '支付给职工以及为职工支付的现金',
+                    c_paid_for_taxes DECIMAL(20,2) COMMENT '支付的各项税费',
+                    n_incr_clt_loan_adv DECIMAL(20,2) COMMENT '客户贷款及垫款净增加额',
+                    n_incr_dep_cbob DECIMAL(20,2) COMMENT '存放央行和同业款项净增加额',
+                    c_pay_claims_orig_inco DECIMAL(20,2) COMMENT '支付原保险合同赔付款项的现金',
+                    pay_handling_chrg DECIMAL(20,2) COMMENT '支付利息和手续费的现金',
+                    pay_comm_insur_plcy DECIMAL(20,2) COMMENT '支付保单红利的现金',
+                    c_paid_oth_operate_a DECIMAL(20,2) COMMENT '支付其他与经营活动有关的现金',
+                    c_outf_fr_operate_a DECIMAL(20,2) COMMENT '经营活动现金流出小计',
+                    n_cashflow_act DECIMAL(20,2) COMMENT '经营活动产生的现金流量净额',
+                    c_recp_disp_withdrwl_invest DECIMAL(20,2) COMMENT '收回投资收到的现金',
+                    c_recp_return_invest DECIMAL(20,2) COMMENT '取得投资收益收到的现金',
+                    n_recp_disp_fiolta DECIMAL(20,2) COMMENT '处置固定资产、无形资产和其他长期资产收回的现金净额',
+                    n_recp_disp_sobu DECIMAL(20,2) COMMENT '处置子公司及其他营业单位收到的现金净额',
+                    c_recp_oth_invest DECIMAL(20,2) COMMENT '收到其他与投资活动有关的现金',
+                    c_inf_fr_inv_act DECIMAL(20,2) COMMENT '投资活动现金流入小计',
+                    c_paid_acq_const_fiolta DECIMAL(20,2) COMMENT '购建固定资产、无形资产和其他长期资产支付的现金',
+                    c_paid_invest DECIMAL(20,2) COMMENT '投资支付的现金',
+                    n_disp_subs_oth_biz DECIMAL(20,2) COMMENT '质押贷款净增加额',
+                    c_pay_oth_inv_act DECIMAL(20,2) COMMENT '支付其他与投资活动有关的现金',
+                    c_outf_fr_inv_act DECIMAL(20,2) COMMENT '投资活动现金流出小计',
+                    n_cashflow_inv_act DECIMAL(20,2) COMMENT '投资活动产生的现金流量净额',
+                    c_recp_borrow DECIMAL(20,2) COMMENT '取得借款收到的现金',
+                    proc_issue_bonds DECIMAL(20,2) COMMENT '发行债券收到的现金',
+                    c_recp_oth_fin_act DECIMAL(20,2) COMMENT '收到其他与筹资活动有关的现金',
+                    c_inf_fr_fin_act DECIMAL(20,2) COMMENT '筹资活动现金流入小计',
+                    c_prepay_amt_borr DECIMAL(20,2) COMMENT '偿还债务支付的现金',
+                    c_pay_dist_dpcp_int_exp DECIMAL(20,2) COMMENT '分配股利、利润或偿付利息支付的现金',
+                    incl_dvd_profit_paid_sc_ms DECIMAL(20,2) COMMENT '其中:子公司支付给少数股东的股利、利润',
+                    c_pay_oth_fin_act DECIMAL(20,2) COMMENT '支付其他与筹资活动有关的现金',
+                    c_outf_fr_fin_act DECIMAL(20,2) COMMENT '筹资活动现金流出小计',
+                    n_cash_flows_fnc_act DECIMAL(20,2) COMMENT '筹资活动产生的现金流量净额',
+                    eff_fx_flu_cash DECIMAL(20,2) COMMENT '汇率变动对现金的影响',
+                    n_incr_cash_cash_equ DECIMAL(20,2) COMMENT '现金及现金等价物净增加额',
+                    c_cash_equ_beg_period DECIMAL(20,2) COMMENT '期初现金及现金等价物余额',
+                    c_cash_equ_end_period DECIMAL(20,2) COMMENT '期末现金及现金等价物余额',
+                    c_recp_cap_contrib DECIMAL(20,2) COMMENT '吸收投资收到的现金',
+                    incl_cash_rec_saims DECIMAL(20,2) COMMENT '其中:子公司吸收少数股东投资收到的现金',
+                    uncon_invest_loss DECIMAL(20,2) COMMENT '未确认投资损失',
+                    prov_depr_assets DECIMAL(20,2) COMMENT '加:资产减值准备',
+                    depr_fa_coga_dpba DECIMAL(20,2) COMMENT '固定资产折旧、油气资产折耗、生产性生物资产折旧',
+                    amort_intang_assets DECIMAL(20,2) COMMENT '无形资产摊销',
+                    lt_amort_deferred_exp DECIMAL(20,2) COMMENT '长期待摊费用摊销',
+                    decr_deferred_exp DECIMAL(20,2) COMMENT '待摊费用减少',
+                    incr_acc_exp DECIMAL(20,2) COMMENT '预提费用增加',
+                    loss_disp_fiolta DECIMAL(20,2) COMMENT '处置固定、无形资产和其他长期资产的损失',
+                    loss_scr_fa DECIMAL(20,2) COMMENT '固定资产报废损失',
+                    loss_fv_chg DECIMAL(20,2) COMMENT '公允价值变动损失',
+                    invest_loss DECIMAL(20,2) COMMENT '投资损失',
+                    decr_def_inc_tax_assets DECIMAL(20,2) COMMENT '递延所得税资产减少',
+                    incr_def_inc_tax_liab DECIMAL(20,2) COMMENT '递延所得税负债增加',
+                    decr_inventories DECIMAL(20,2) COMMENT '存货的减少',
+                    decr_oper_payable DECIMAL(20,2) COMMENT '经营性应收项目的减少',
+                    incr_oper_payable DECIMAL(20,2) COMMENT '经营性应付项目的增加',
+                    others DECIMAL(20,2) COMMENT '其他',
+                    im_net_cashflow_oper_act DECIMAL(20,2) COMMENT '经营活动产生的现金流量净额(间接法)',
+                    conv_debt_into_cap DECIMAL(20,2) COMMENT '债务转为资本',
+                    conv_copbonds_due_within_1y DECIMAL(20,2) COMMENT '一年内到期的可转换公司债券',
+                    fa_fnc_leases DECIMAL(20,2) COMMENT '融资租入固定资产',
+                    update_flag VARCHAR(10) COMMENT '更新标识',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+                    UNIQUE KEY unique_stock_period (ts_code, end_date, report_type),
+                    INDEX idx_ts_code (ts_code),
+                    INDEX idx_end_date (end_date),
+                    INDEX idx_ann_date (ann_date)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='股票现金流量表数据表';
+                """
+                cursor.execute(create_table_sql)
+                self.connection.commit()
+                logger.info("现金流量表数据表创建成功")
+                return True
+        except Exception as e:
+            logger.error(f"创建现金流量表数据表失败: {e}")
+            return False
+    
+    def create_dividend_table(self):
+        """创建分红送股数据表"""
+        if not self.connection:
+            logger.error("请先连接数据库")
+            return False
+            
+        try:
+            with self.connection.cursor() as cursor:
+                create_table_sql = """
+                CREATE TABLE IF NOT EXISTS dividend_data (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    ts_code VARCHAR(20) NOT NULL COMMENT '股票代码',
+                    end_date DATE NOT NULL COMMENT '分红年度',
+                    ann_date DATE COMMENT '预案公告日',
+                    div_proc VARCHAR(50) COMMENT '实施进度',
+                    stk_div DECIMAL(10,4) COMMENT '每股送红股数',
+                    stk_bo_rate DECIMAL(10,4) COMMENT '每股转增',
+                    stk_co_rate DECIMAL(10,4) COMMENT '每股配股',
+                    cash_div DECIMAL(10,4) COMMENT '每股分红(税前)',
+                    cash_div_tax DECIMAL(10,4) COMMENT '每股分红(税后)',
+                    record_date DATE COMMENT '股权登记日',
+                    ex_date DATE COMMENT '除权除息日',
+                    pay_date DATE COMMENT '派息日',
+                    div_listdate DATE COMMENT '红股上市日',
+                    imp_ann_date DATE COMMENT '实施公告日',
+                    base_date DATE COMMENT '基准日',
+                    base_share DECIMAL(20,2) COMMENT '基准股本(万股)',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+                    UNIQUE KEY unique_dividend (ts_code, end_date, ann_date),
+                    INDEX idx_ts_code (ts_code),
+                    INDEX idx_end_date (end_date),
+                    INDEX idx_ann_date (ann_date),
+                    INDEX idx_ex_date (ex_date)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='股票分红送股数据表';
+                """
+                cursor.execute(create_table_sql)
+                self.connection.commit()
+                logger.info("分红送股数据表创建成功")
+                return True
+        except Exception as e:
+            logger.error(f"创建分红送股数据表失败: {e}")
+            return False
     
     def __enter__(self):
         """上下文管理器入口"""

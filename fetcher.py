@@ -1402,3 +1402,244 @@ class StockDataFetcher:
         logger.info(f"   📅 日期范围: {combined_df['trade_date'].min()} 到 {combined_df['trade_date'].max()}")
         
         return combined_df
+    
+    def get_income_data(self, ts_code: str = None, period: str = None, 
+                       start_date: str = None, end_date: str = None) -> Optional[pd.DataFrame]:
+        """
+        获取利润表数据
+        
+        Args:
+            ts_code: 股票代码（如：000001.SZ）
+            period: 报告期（如：20231231）
+            start_date: 开始日期（YYYYMMDD格式）
+            end_date: 结束日期（YYYYMMDD格式）
+            
+        Returns:
+            pd.DataFrame: 利润表数据
+        """
+        try:
+            logger.info(f"正在获取利润表数据...")
+            
+            # 构建请求参数
+            params = {}
+            if ts_code:
+                params['ts_code'] = ts_code
+            if period:
+                params['period'] = period
+            if start_date:
+                params['start_date'] = start_date
+            if end_date:
+                params['end_date'] = end_date
+            
+            # 获取利润表数据
+            df = self.pro.income(**params)
+            
+            if df.empty:
+                logger.warning("未获取到利润表数据")
+                return None
+            
+            # 数据预处理
+            date_columns = ['ann_date', 'f_ann_date', 'end_date']
+            for col in date_columns:
+                if col in df.columns:
+                    df[col] = pd.to_datetime(df[col], format='%Y%m%d', errors='coerce')
+            
+            logger.info(f"成功获取 {len(df)} 条利润表数据")
+            return df
+            
+        except Exception as e:
+            logger.error(f"获取利润表数据失败: {e}")
+            return None
+    
+    def get_cashflow_data(self, ts_code: str = None, period: str = None,
+                         start_date: str = None, end_date: str = None) -> Optional[pd.DataFrame]:
+        """
+        获取现金流量表数据
+        
+        Args:
+            ts_code: 股票代码（如：000001.SZ）
+            period: 报告期（如：20231231）
+            start_date: 开始日期（YYYYMMDD格式）
+            end_date: 结束日期（YYYYMMDD格式）
+            
+        Returns:
+            pd.DataFrame: 现金流量表数据
+        """
+        try:
+            logger.info(f"正在获取现金流量表数据...")
+            
+            # 构建请求参数
+            params = {}
+            if ts_code:
+                params['ts_code'] = ts_code
+            if period:
+                params['period'] = period
+            if start_date:
+                params['start_date'] = start_date
+            if end_date:
+                params['end_date'] = end_date
+            
+            # 获取现金流量表数据
+            df = self.pro.cashflow(**params)
+            
+            if df.empty:
+                logger.warning("未获取到现金流量表数据")
+                return None
+            
+            # 数据预处理
+            date_columns = ['ann_date', 'f_ann_date', 'end_date']
+            for col in date_columns:
+                if col in df.columns:
+                    df[col] = pd.to_datetime(df[col], format='%Y%m%d', errors='coerce')
+            
+            logger.info(f"成功获取 {len(df)} 条现金流量表数据")
+            return df
+            
+        except Exception as e:
+            logger.error(f"获取现金流量表数据失败: {e}")
+            return None
+    
+    def get_dividend_data(self, ts_code: str = None, ann_date: str = None,
+                         start_date: str = None, end_date: str = None) -> Optional[pd.DataFrame]:
+        """
+        获取分红送股数据
+        
+        Args:
+            ts_code: 股票代码（如：000001.SZ）
+            ann_date: 公告日期（YYYYMMDD格式）
+            start_date: 开始日期（YYYYMMDD格式）
+            end_date: 结束日期（YYYYMMDD格式）
+            
+        Returns:
+            pd.DataFrame: 分红送股数据
+        """
+        try:
+            logger.info(f"正在获取分红送股数据...")
+            
+            # 分红数据获取策略：
+            # 1. 如果只提供ts_code，不使用时间限制（获取全部历史分红）
+            # 2. 如果提供时间范围，按时间筛选
+            if ts_code and not start_date and not end_date and not ann_date:
+                # 获取该股票所有分红记录
+                df = self.pro.dividend(ts_code=ts_code)
+            else:
+                # 使用提供的参数
+                params = {}
+                if ts_code:
+                    params['ts_code'] = ts_code
+                if ann_date:
+                    params['ann_date'] = ann_date
+                if start_date:
+                    params['start_date'] = start_date
+                if end_date:
+                    params['end_date'] = end_date
+                
+                # 获取分红送股数据
+                df = self.pro.dividend(**params)
+            
+            if df.empty:
+                logger.warning("未获取到分红送股数据")
+                return None
+            
+            # 数据预处理
+            date_columns = ['ann_date', 'record_date', 'ex_date', 'pay_date', 
+                          'div_listdate', 'imp_ann_date', 'base_date']
+            for col in date_columns:
+                if col in df.columns:
+                    df[col] = pd.to_datetime(df[col], format='%Y%m%d', errors='coerce')
+            
+            logger.info(f"成功获取 {len(df)} 条分红送股数据")
+            return df
+            
+        except Exception as e:
+            logger.error(f"获取分红送股数据失败: {e}")
+            return None
+    
+    def get_multiple_stocks_financial_data(self, stock_codes: List[str], 
+                                          data_type: str = 'income',
+                                          years_back: int = 3,
+                                          batch_size: int = 20, 
+                                          delay: float = 0.5) -> pd.DataFrame:
+        """
+        批量获取多只股票的财务数据
+        
+        Args:
+            stock_codes: 股票代码列表
+            data_type: 数据类型 ('income', 'cashflow', 'dividend')
+            years_back: 回溯年数
+            batch_size: 批次大小
+            delay: API调用延迟
+            
+        Returns:
+            pd.DataFrame: 合并的财务数据
+        """
+        all_data = []
+        total_stocks = len(stock_codes)
+        
+        # 计算日期范围
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=365 * years_back)
+        start_date_str = start_date.strftime('%Y%m%d')
+        end_date_str = end_date.strftime('%Y%m%d')
+        
+        logger.info(f"开始批量获取 {total_stocks} 只股票的{data_type}数据")
+        logger.info(f"时间范围: {start_date_str} 至 {end_date_str}")
+        
+        for i, ts_code in enumerate(stock_codes, 1):
+            try:
+                # 根据数据类型调用不同的方法
+                # 对于财务数据，不使用时间范围限制，而是获取全部数据后再筛选
+                if data_type == 'income':
+                    df = self.get_income_data(ts_code=ts_code)
+                elif data_type == 'cashflow':
+                    df = self.get_cashflow_data(ts_code=ts_code)
+                elif data_type == 'dividend':
+                    df = self.get_dividend_data(ts_code=ts_code)
+                else:
+                    logger.error(f"未知的数据类型: {data_type}")
+                    continue
+                
+                # 如果获取到数据，根据时间范围进行筛选
+                if df is not None and not df.empty and years_back > 0:
+                    cutoff_date = datetime.now() - timedelta(days=365 * years_back)
+                    
+                    # 确保日期列为datetime类型
+                    if 'end_date' in df.columns:
+                        df['end_date'] = pd.to_datetime(df['end_date'], errors='coerce')
+                        df = df[df['end_date'] >= cutoff_date]
+                    elif 'ann_date' in df.columns:
+                        df['ann_date'] = pd.to_datetime(df['ann_date'], errors='coerce')
+                        df = df[df['ann_date'] >= cutoff_date]
+                
+                if df is not None and not df.empty:
+                    all_data.append(df)
+                
+                # 显示进度
+                if i % 10 == 0 or i == total_stocks:
+                    success_count = len(all_data)
+                    logger.info(f"进度: {i}/{total_stocks} ({i/total_stocks*100:.1f}%), 成功获取: {success_count}只")
+                
+                # 避免频繁调用API
+                import time
+                time.sleep(delay)
+                
+                # 每批次后稍长休眠
+                if i % batch_size == 0:
+                    logger.info(f"完成第 {i//batch_size} 批次，休眠2秒...")
+                    time.sleep(2.0)
+                
+            except Exception as e:
+                logger.error(f"获取股票 {ts_code} 的{data_type}数据时发生错误: {e}")
+                continue
+        
+        if not all_data:
+            logger.warning(f"没有获取到任何{data_type}数据")
+            return pd.DataFrame()
+        
+        # 合并所有数据
+        combined_df = pd.concat(all_data, ignore_index=True)
+        success_rate = len(all_data) / total_stocks * 100
+        logger.info(f"批量获取{data_type}数据完成！总共获取了 {len(combined_df)} 条记录")
+        logger.info(f"成功率: {len(all_data)}/{total_stocks} ({success_rate:.1f}%)")
+        
+        return combined_df
