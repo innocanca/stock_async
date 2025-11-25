@@ -101,9 +101,8 @@ def get_stock_list(db: StockDatabase) -> List[str]:
     
     try:
         # 从数据库的stock_basic表获取主板股票列表
-        with db:
-            cursor = db.connection.cursor()
-            
+        cursor = db.connection.cursor()
+
         # 查询主板股票，排除ST、退市等 - 全量获取
         query_sql = """
         SELECT DISTINCT ts_code 
@@ -115,24 +114,24 @@ def get_stock_list(db: StockDatabase) -> List[str]:
           AND (ts_code LIKE '60____.SH' OR ts_code LIKE '00____.SZ')
         ORDER BY ts_code
         """
-            
-            cursor.execute(query_sql)
-            results = cursor.fetchall()
-            
-            if not results:
-                logger.warning("⚠️ 数据库中未找到股票基础信息，使用备用列表")
-                # 使用备用的知名股票列表
-                return [
-                    '000001.SZ', '000002.SZ', '000063.SZ', '000100.SZ', '000157.SZ',
-                    '000333.SZ', '000858.SZ', '000895.SZ', '600000.SH', '600036.SH',
-                    '600519.SH', '600887.SH', '601318.SH', '601398.SH', '601939.SH'
-                ]
-            
-            stock_codes = [result[0] for result in results]
-            logger.info(f"📈 从数据库获取到 {len(stock_codes)} 只主板股票（全量初始化）")
-            
-            return stock_codes
-        
+
+        cursor.execute(query_sql)
+        results = cursor.fetchall()
+
+        if not results:
+            logger.warning("⚠️ 数据库中未找到股票基础信息，使用备用列表")
+            # 使用备用的知名股票列表
+            return [
+                '000001.SZ', '000002.SZ', '000063.SZ', '000100.SZ', '000157.SZ',
+                '000333.SZ', '000858.SZ', '000895.SZ', '600000.SH', '600036.SH',
+                '600519.SH', '600887.SH', '601318.SH', '601398.SH', '601939.SH'
+            ]
+
+        stock_codes = [result[0] for result in results]
+        logger.info(f"📈 从数据库获取到 {len(stock_codes)} 只主板股票（全量初始化）")
+
+        return stock_codes
+
     except Exception as e:
         logger.error(f"❌ 从数据库获取股票列表失败: {e}")
         # 使用备用的知名股票列表
