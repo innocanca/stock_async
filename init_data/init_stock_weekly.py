@@ -101,8 +101,8 @@ def get_stock_list(fetcher: StockDataFetcher) -> List[str]:
         
         main_board_stocks = filtered_df['ts_code'].tolist()
         
-        logger.info(f"📈 获取到 {len(main_board_stocks)} 只主板股票")
-        return main_board_stocks[:500]  # 限制为500只股票，避免初始化时间过长
+        logger.info(f"📈 获取到 {len(main_board_stocks)} 只主板股票（全量用于周线初始化）")
+        return main_board_stocks
         
     except Exception as e:
         logger.error(f"❌ 获取股票列表失败: {e}")
