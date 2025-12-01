@@ -17,7 +17,7 @@
 
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -81,6 +81,55 @@ def sync_weekly_data(weeks_back: int = 8) -> bool:
     else:
         logger.error("❌ 周线数据同步失败")
     return ok
+
+
+def sync_etf_daily_data(days_back: int = 5) -> bool:
+    """
+    同步ETF日线行情 `etf_daily`。
+
+    策略：
+    - 每天定时跑时，取最近 N 个自然日的区间（默认5天），
+      通过交易日历过滤出真实交易日；
+    - 使用 `get_all_etf_daily_by_dates_with_batch_insert` 按交易日循环拉取，
+      数据库端依赖 (ts_code, trade_date) UNIQUE + UPSERT，重复写入幂等。
+    """
+    logger.info(f"🔄 开始增量同步ETF日线数据 etf_daily （最近 {days_back} 天窗口）...")
+    try:
+        fetcher = StockDataFetcher()
+        with StockDatabase() as db:
+            end_dt = datetime.now()
+            start_dt = end_dt - timedelta(days=days_back)
+            start_date = start_dt.strftime("%Y%m%d")
+            end_date = end_dt.strftime("%Y%m%d")
+
+            stats = fetcher.get_all_etf_daily_by_dates_with_batch_insert(
+                start_date=start_date,
+                end_date=end_date,
+                delay=0.5,
+                exchange="SSE",
+                db_instance=db,
+                batch_days=5,
+            )
+
+        if not stats:
+            logger.error("❌ ETF日线增量同步返回空统计")
+            return False
+
+        logger.info("📊 ETF日线增量同步统计：")
+        logger.info(f"   📅 交易日: {stats.get('total_trading_days', 0)} 天，成功 {stats.get('successful_days', 0)} 天")
+        logger.info(f"   📊 插入记录: {stats.get('total_records', 0):,} 条")
+        logger.info(f"   📦 插入批次: {stats.get('total_batches', 0)} 次")
+
+        ok = stats.get("total_records", 0) > 0
+        if ok:
+            logger.info("✅ ETF日线数据增量同步完成")
+        else:
+            logger.warning("⚠️ 本次ETF日线增量同步未插入任何记录")
+        return ok
+
+    except Exception as e:
+        logger.error(f"同步ETF日线数据失败: {e}")
+        return False
 
 
 def get_main_board_stocks_from_db(db: StockDatabase) -> List[str]:
@@ -203,18 +252,20 @@ def main() -> bool:
     ok_basic = sync_stock_basic()
     ok_daily = sync_daily_data()
     ok_weekly = sync_weekly_data(weeks_back=8)
+    ok_etf_daily = sync_etf_daily_data(days_back=5)
     ok_fin = sync_financial_data()
 
-    total_ok = ok_basic and ok_daily and ok_weekly and ok_fin
+    total_ok = ok_basic and ok_daily and ok_weekly and ok_etf_daily and ok_fin
 
     duration = datetime.now() - start_time
     logger.info("==============================================")
     logger.info("📊 每日增量更新汇总：")
-    logger.info(f"   股票基础信息   : {'✅' if ok_basic else '❌'}")
-    logger.info(f"   日线行情 daily : {'✅' if ok_daily else '❌'}")
-    logger.info(f"   周线行情 weekly: {'✅' if ok_weekly else '❌'}")
-    logger.info(f"   财务&分红数据  : {'✅' if ok_fin else '❌'}")
-    logger.info(f"   总耗时         : {duration}")
+    logger.info(f"   股票基础信息     : {'✅' if ok_basic else '❌'}")
+    logger.info(f"   日线行情 daily   : {'✅' if ok_daily else '❌'}")
+    logger.info(f"   周线行情 weekly  : {'✅' if ok_weekly else '❌'}")
+    logger.info(f"   ETF日线 etf_daily: {'✅' if ok_etf_daily else '❌'}")
+    logger.info(f"   财务&分红数据    : {'✅' if ok_fin else '❌'}")
+    logger.info(f"   总耗时           : {duration}")
 
     if total_ok:
         logger.info("🎉 每日增量更新全部成功！")
@@ -231,5 +282,6 @@ if __name__ == "__main__":
     except Exception as e:
         logger.error(f"程序异常退出: {e}")
         sys.exit(1)
+
 
 

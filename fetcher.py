@@ -330,6 +330,64 @@ class StockDataFetcher:
         except Exception as e:
             logger.error(f"获取股票基础信息失败: {e}")
             return None
+
+    def get_etf_basic(self,
+                      list_status: str = 'L',
+                      exchange: str = None,
+                      mgr: str = None,
+                      index_code: str = None,
+                      etf_type: str = None) -> Optional[pd.DataFrame]:
+        """
+        获取ETF基础信息
+
+        对应Tushare etf_basic接口文档:
+        https://tushare.pro/document/2?doc_id=385
+
+        Args:
+            list_status: 上市状态 L-上市 D-退市 P-暂停上市
+            exchange: 交易所 (SSE, SZSE)
+            mgr: 基金管理人名称（模糊匹配）
+            index_code: 跟踪指数代码
+            etf_type: ETF类型
+
+        Returns:
+            pd.DataFrame: ETF基础信息
+        """
+        try:
+            logger.info("正在获取ETF基础信息...")
+
+            params = {
+                "list_status": list_status,
+            }
+            if exchange:
+                params["exchange"] = exchange
+            if mgr:
+                params["mgr"] = mgr
+            if index_code:
+                params["index_code"] = index_code
+            if etf_type:
+                params["etf_type"] = etf_type
+
+            # 选取常用字段，方便落库；文档示例字段见: https://tushare.pro/document/2?doc_id=385
+            fields = "ts_code,extname,index_code,index_name,exchange,etf_type,list_date,list_status,delist_date,mgr_name"
+
+            df = self.pro.etf_basic(fields=fields, **params)
+
+            if df is None or df.empty:
+                logger.warning("未获取到ETF基础信息数据")
+                return None
+
+            # 日期字段预处理
+            for col in ["list_date", "delist_date"]:
+                if col in df.columns:
+                    df[col] = pd.to_datetime(df[col], format="%Y%m%d", errors="coerce")
+
+            logger.info(f"获取到 {len(df)} 只ETF的基础信息")
+            return df
+
+        except Exception as e:
+            logger.error(f"获取ETF基础信息失败: {e}")
+            return None
     
     def get_main_board_stocks(self, use_cache: bool = True) -> List[str]:
         """
@@ -472,6 +530,47 @@ class StockDataFetcher:
         except Exception as e:
             logger.error(f"获取交易日历失败: {e}")
             return None
+
+    def get_etf_daily(self, ts_code: str = '', trade_date: str = '',
+                      start_date: str = '', end_date: str = '') -> Optional[pd.DataFrame]:
+        """
+        获取ETF日线行情数据，对应Tushare fund_daily接口
+        文档: https://tushare.pro/document/2?doc_id=127
+
+        Args:
+            ts_code: ETF代码
+            trade_date: 单个交易日 (YYYYMMDD)
+            start_date: 开始日期
+            end_date: 结束日期
+
+        Returns:
+            pd.DataFrame: ETF日线数据
+        """
+        try:
+            params = {}
+            if ts_code:
+                params["ts_code"] = ts_code
+            if trade_date:
+                params["trade_date"] = trade_date
+            if start_date:
+                params["start_date"] = start_date
+            if end_date:
+                params["end_date"] = end_date
+
+            df = self.pro.fund_daily(**params)
+
+            if df is None or df.empty:
+                return None
+
+            # trade_date 字段转为日期
+            if "trade_date" in df.columns:
+                df["trade_date"] = pd.to_datetime(df["trade_date"], format="%Y%m%d", errors="coerce")
+
+            return df
+
+        except Exception as e:
+            logger.error(f"获取ETF日线数据失败: {e}")
+            return None
     
     def get_daily_with_retry(self, ts_code: str = '', trade_date: str = '', 
                            start_date: str = '', end_date: str = '', max_retries: int = 3) -> Optional[pd.DataFrame]:
@@ -510,6 +609,33 @@ class StockDataFetcher:
                 else:
                     logger.error(f"达到最大重试次数 {max_retries}，获取失败")
         
+        return None
+
+    def get_etf_daily_with_retry(self, ts_code: str = '', trade_date: str = '',
+                                 start_date: str = '', end_date: str = '',
+                                 max_retries: int = 3) -> Optional[pd.DataFrame]:
+        """
+        带重试机制的ETF日线数据获取（fund_daily）
+        """
+        import time
+
+        for retry in range(max_retries):
+            try:
+                df = self.get_etf_daily(
+                    ts_code=ts_code,
+                    trade_date=trade_date,
+                    start_date=start_date,
+                    end_date=end_date,
+                )
+                if df is not None:
+                    return df
+            except Exception as e:
+                logger.warning(f"获取ETF日线第 {retry + 1} 次尝试失败: {e}")
+                if retry < max_retries - 1:
+                    time.sleep(1 + retry)
+                else:
+                    logger.error(f"ETF日线达到最大重试次数 {max_retries}，获取失败")
+
         return None
     
     def get_all_market_data_by_dates(self, start_date: str, end_date: str, 
@@ -720,6 +846,284 @@ class StockDataFetcher:
             logger.warning(f"   ⚠️ 失败的交易日: {len(stats['failed_days'])} 天")
             logger.debug(f"   失败日期: {stats['failed_days']}")
         
+        return stats
+
+    def get_all_index_daily_by_dates_with_batch_insert(
+        self,
+        start_date: str,
+        end_date: str,
+        delay: float = 0.5,
+        exchange: str = "SSE",
+        db_instance=None,
+        batch_days: int = 10,
+    ) -> dict:
+        """
+        获取“全部指数”的日线行情并分批插入 index_daily 表。
+
+        受限于 Tushare index_daily 接口当前环境必须提供 ts_code 参数，
+        这里的实现是：
+        1. 先从 index_basic 表或接口获取所有指数代码列表；
+        2. 对每个 ts_code 调用 index_daily(ts_code, start_date, end_date)；
+        3. 累积到一定数量后批量写入 index_daily。
+        """
+        import time
+
+        if db_instance is None:
+            logger.error("需要提供数据库实例进行指数日线分批插入")
+            return {}
+
+        # 1. 获取指数代码列表（优先从数据库 index_basic 表）
+        index_codes = []
+        try:
+            with db_instance.connection.cursor() as cursor:
+                cursor.execute("SELECT ts_code FROM index_basic")
+                rows = cursor.fetchall()
+                index_codes = [r[0] for r in rows] if rows else []
+        except Exception as e:
+            logger.warning(f"从 index_basic 读取指数代码失败: {e}")
+
+        if not index_codes:
+            logger.info("index_basic 中暂无数据，尝试从API获取所有指数基本信息...")
+            all_basic = self.get_all_index_basic_data()
+            if all_basic is None or all_basic.empty:
+                logger.error("无法获取指数基本信息，退出指数日线数据获取")
+                return {}
+            # 尝试落库，以便后续复用
+            try:
+                db_instance.insert_index_basic(all_basic)
+            except Exception as e:
+                logger.warning(f"插入指数基本信息到数据库失败（不影响后续行情初始化）: {e}")
+            index_codes = all_basic["ts_code"].tolist()
+
+        total_indexes = len(index_codes)
+        logger.info(f"🚀 开始指数日线数据获取和分批插入，共 {total_indexes} 个指数")
+
+        stats = {
+            "total_indexes": total_indexes,
+            "successful_indexes": 0,
+            "failed_indexes": 0,
+            "total_records": 0,
+            "total_batches": 0,
+            "batch_insert_success": 0,
+            "batch_insert_failed": 0,
+            "failed_index_codes": [],
+        }
+
+        current_batch_data = []
+
+        for i, ts_code in enumerate(index_codes, 1):
+            try:
+                logger.info(
+                    f"📈 正在获取指数 {ts_code} 的日线行情 ({i}/{total_indexes}) "
+                    f"[{start_date} ~ {end_date}]"
+                )
+
+                df = self.get_index_daily(
+                    ts_code=ts_code,
+                    start_date=start_date,
+                    end_date=end_date,
+                )
+
+                if df is not None and not df.empty:
+                    current_batch_data.append(df)
+                    stats["successful_indexes"] += 1
+                    logger.info(
+                        f"✅ 成功获取 {ts_code} 的 {len(df)} 条指数日线数据"
+                    )
+                else:
+                    stats["failed_indexes"] += 1
+                    stats["failed_index_codes"].append(ts_code)
+                    logger.warning(f"⚠️ 未获取到 {ts_code} 的指数日线数据")
+
+                time.sleep(delay)
+
+                should_insert = (
+                    len(current_batch_data) >= batch_days or i == total_indexes
+                )
+
+                if should_insert and current_batch_data:
+                    batch_df = pd.concat(current_batch_data, ignore_index=True)
+                    batch_records = len(batch_df)
+
+                    logger.info(
+                        f"💾 开始插入第 {stats['total_batches'] + 1} 批指数日线数据..."
+                    )
+                    logger.info(f"   📊 本批数据: {batch_records:,} 条记录")
+
+                    insert_success = db_instance.insert_index_daily(batch_df)
+
+                    if insert_success:
+                        stats["total_batches"] += 1
+                        stats["total_records"] += batch_records
+                        stats["batch_insert_success"] += 1
+                        logger.info(
+                            f"✅ 第 {stats['total_batches']} 批指数日线数据插入成功，"
+                            f"累计 {stats['total_records']:,} 条"
+                        )
+                    else:
+                        stats["batch_insert_failed"] += 1
+                        logger.error(
+                            f"❌ 第 {stats['total_batches'] + 1} 批指数日线数据插入失败"
+                        )
+
+                    current_batch_data = []
+
+                if i % 50 == 0 or i == total_indexes:
+                    success_rate = (
+                        stats["successful_indexes"] / i * 100 if i > 0 else 0
+                    )
+                    logger.info(
+                        f"📊 进度: {i}/{total_indexes} ({i/total_indexes*100:.1f}%), "
+                        f"成功指数: {stats['successful_indexes']}, "
+                        f"失败指数: {stats['failed_indexes']} "
+                        f"({success_rate:.1f}% 成功率)"
+                    )
+                    logger.info(
+                        f"   💾 已插入指数日线: {stats['total_records']:,} 条记录"
+                    )
+
+            except Exception as e:
+                stats["failed_indexes"] += 1
+                stats["failed_index_codes"].append(ts_code)
+                logger.error(f"❌ 获取指数 {ts_code} 日线数据时发生错误: {e}")
+                continue
+
+        logger.info("🎉 指数日线数据获取和插入完成！")
+        logger.info(f"   📈 总指数数: {stats['total_indexes']} 个")
+        logger.info(f"   ✅ 成功指数: {stats['successful_indexes']} 个")
+        logger.info(f"   📊 总插入记录: {stats['total_records']:,} 条")
+        logger.info(f"   📦 插入批次: {stats['total_batches']} 次")
+        logger.info(
+            f"   💾 插入成功率: {stats['batch_insert_success']}/{stats['total_batches']}"
+        )
+
+        if stats["failed_index_codes"]:
+            logger.warning(
+                f"   ⚠️ 拉取失败的指数: {len(stats['failed_index_codes'])} 个 "
+                f"(示例: {stats['failed_index_codes'][:5]})"
+            )
+
+        return stats
+
+    def get_all_etf_daily_by_dates_with_batch_insert(self, start_date: str, end_date: str,
+                                                     delay: float = 0.5, exchange: str = 'SSE',
+                                                     db_instance=None, batch_days: int = 10) -> dict:
+        """
+        按交易日循环获取 ETF 日线行情（fund_daily）并分批插入 etf_daily 表
+
+        Args:
+            start_date: 开始日期 YYYYMMDD
+            end_date: 结束日期 YYYYMMDD
+            delay: 每天请求的延迟
+            exchange: 用于取交易日历的交易所 (SSE/SZSE)
+            db_instance: 数据库实例 (需要支持 insert_etf_daily)
+            batch_days: 每批插入的交易日数量
+
+        Returns:
+            dict: 统计信息
+        """
+        import time
+
+        if db_instance is None:
+            logger.error("需要提供数据库实例进行ETF日线分批插入")
+            return {}
+
+        # 获取交易日历
+        trade_cal = self.get_trade_calendar(start_date, end_date, exchange)
+        if trade_cal is None or trade_cal.empty:
+            logger.error("无法获取交易日历，退出ETF日线数据获取")
+            return {}
+
+        trading_days = trade_cal["cal_date"].values
+        total_days = len(trading_days)
+        logger.info(f"🚀 开始ETF日线数据获取和分批插入，共 {total_days} 个交易日")
+
+        stats = {
+            "total_trading_days": total_days,
+            "successful_days": 0,
+            "total_records": 0,
+            "total_batches": 0,
+            "failed_days": [],
+            "batch_insert_success": 0,
+            "batch_insert_failed": 0,
+        }
+
+        current_batch_data = []
+        batch_trading_days = []
+
+        for i, trade_date in enumerate(trading_days, 1):
+            try:
+                logger.info(f"📅 正在获取 {trade_date} 的ETF日线数据 ({i}/{total_days})")
+
+                df = self.get_etf_daily_with_retry(trade_date=trade_date)
+
+                if df is not None and not df.empty:
+                    current_batch_data.append(df)
+                    batch_trading_days.append(trade_date)
+                    stats["successful_days"] += 1
+                    logger.info(f"✅ 成功获取 {trade_date} 的 {len(df)} 条ETF日线数据")
+                else:
+                    logger.warning(f"⚠️ 未获取到 {trade_date} 的ETF日线数据")
+                    stats["failed_days"].append(trade_date)
+
+                time.sleep(delay)
+
+                should_insert = (
+                    len(current_batch_data) >= batch_days
+                    or i == total_days
+                    or len(current_batch_data) >= 20
+                )
+
+                if should_insert and current_batch_data:
+                    batch_df = pd.concat(current_batch_data, ignore_index=True)
+                    batch_records = len(batch_df)
+
+                    logger.info(f"💾 开始插入第 {stats['total_batches'] + 1} 批ETF日线数据...")
+                    logger.info(
+                        f"   📊 本批数据: {batch_records:,} 条, 交易日: {batch_trading_days[0]} ~ {batch_trading_days[-1]}"
+                    )
+
+                    insert_success = db_instance.insert_etf_daily(batch_df)
+
+                    if insert_success:
+                        stats["total_batches"] += 1
+                        stats["total_records"] += batch_records
+                        stats["batch_insert_success"] += 1
+                        logger.info(
+                            f"✅ 第 {stats['total_batches']} 批ETF日线数据插入成功，累计 {stats['total_records']:,} 条"
+                        )
+                    else:
+                        stats["batch_insert_failed"] += 1
+                        logger.error(f"❌ 第 {stats['total_batches'] + 1} 批ETF日线数据插入失败")
+
+                    current_batch_data = []
+                    batch_trading_days = []
+
+                if i % 10 == 0 or i == total_days:
+                    success_rate = stats["successful_days"] / i * 100
+                    logger.info(
+                        f"📊 进度: {i}/{total_days} ({i/total_days*100:.1f}%), "
+                        f"成功获取: {stats['successful_days']}天 ({success_rate:.1f}%)"
+                    )
+                    logger.info(f"   💾 已插入ETF日线: {stats['total_records']:,} 条记录")
+
+            except Exception as e:
+                logger.error(f"❌ 获取 {trade_date} ETF日线数据时发生错误: {e}")
+                stats["failed_days"].append(trade_date)
+                continue
+
+        logger.info("🎉 ETF日线数据获取和插入完成！")
+        logger.info(f"   📅 总交易日: {stats['total_trading_days']} 天")
+        logger.info(f"   ✅ 成功获取: {stats['successful_days']} 天")
+        logger.info(f"   📊 总插入记录: {stats['total_records']:,} 条")
+        logger.info(f"   📦 插入批次: {stats['total_batches']} 次")
+        logger.info(
+            f"   💾 插入成功率: {stats['batch_insert_success']}/{stats['total_batches']}"
+        )
+
+        if stats["failed_days"]:
+            logger.warning(f"   ⚠️ 失败的交易日: {len(stats['failed_days'])} 天")
+
         return stats
     
     def estimate_market_data_time(self, start_date: str, end_date: str, delay: float = 0.5) -> str:
@@ -1280,6 +1684,102 @@ class StockDataFetcher:
         except Exception as e:
             logger.error(f"获取指数日线行情失败: {e}")
             return None
+
+    def get_index_weekly(self, ts_code: str = None, trade_date: str = None,
+                         start_date: str = None, end_date: str = None) -> Optional[pd.DataFrame]:
+        """
+        获取指数周线行情数据
+
+        对应 Tushare index_weekly 接口，文档参考:
+        https://tushare.pro/document/2?doc_id=171
+
+        Args:
+            ts_code: 指数代码
+            trade_date: 交易日期(YYYYMMDD格式)
+            start_date: 开始日期(YYYYMMDD格式)
+            end_date: 结束日期(YYYYMMDD格式)
+
+        Returns:
+            pd.DataFrame: 指数周线行情数据
+        """
+        try:
+            if ts_code:
+                logger.info(f"正在获取指数 {ts_code} 的周线行情数据...")
+            else:
+                logger.info("正在获取指数周线行情数据...")
+
+            params = {}
+            if ts_code:
+                params["ts_code"] = ts_code
+            if trade_date:
+                params["trade_date"] = trade_date
+            if start_date:
+                params["start_date"] = start_date
+            if end_date:
+                params["end_date"] = end_date
+
+            df = self.pro.index_weekly(**params)
+
+            if df is None or df.empty:
+                logger.warning("未获取到指数周线行情数据")
+                return None
+
+            if "trade_date" in df.columns:
+                df["trade_date"] = pd.to_datetime(df["trade_date"], format="%Y%m%d")
+
+            logger.info(f"成功获取 {len(df)} 条指数周线行情数据")
+            return df
+
+        except Exception as e:
+            logger.error(f"获取指数周线行情失败: {e}")
+            return None
+
+    def get_index_weight(self, index_code: str = None, trade_date: str = None,
+                         start_date: str = None, end_date: str = None) -> Optional[pd.DataFrame]:
+        """
+        获取指数成分和权重数据
+
+        对应Tushare index_weight接口，文档参考:
+        https://tushare.pro/document/2?doc_id=171 (或相关指数成分权重文档)
+
+        Args:
+            index_code: 指数代码，如 '000300.SH'
+            trade_date: 交易日期 (YYYYMMDD)
+            start_date: 开始日期 (YYYYMMDD)
+            end_date: 结束日期 (YYYYMMDD)
+
+        Returns:
+            pd.DataFrame: 指数成分和权重数据
+        """
+        try:
+            logger.info("正在获取指数成分和权重数据...")
+
+            params = {}
+            if index_code:
+                params["index_code"] = index_code
+            if trade_date:
+                params["trade_date"] = trade_date
+            if start_date:
+                params["start_date"] = start_date
+            if end_date:
+                params["end_date"] = end_date
+
+            df = self.pro.index_weight(**params)
+
+            if df is None or df.empty:
+                logger.warning("未获取到指数成分和权重数据")
+                return None
+
+            # trade_date 字段转换为日期
+            if "trade_date" in df.columns:
+                df["trade_date"] = pd.to_datetime(df["trade_date"], format="%Y%m%d", errors="coerce")
+
+            logger.info(f"成功获取 {len(df)} 条指数成分和权重数据")
+            return df
+
+        except Exception as e:
+            logger.error(f"获取指数成分和权重数据失败: {e}")
+            return None
     
     def get_all_index_basic_data(self) -> Optional[pd.DataFrame]:
         """
@@ -1401,6 +1901,201 @@ class StockDataFetcher:
         logger.info(f"   📈 涉及指数: {combined_df['ts_code'].nunique()} 个")
         logger.info(f"   📅 日期范围: {combined_df['trade_date'].min()} 到 {combined_df['trade_date'].max()}")
         
+        return combined_df
+    
+    def get_all_index_weekly_by_dates_with_batch_insert(
+        self,
+        start_date: str,
+        end_date: str,
+        delay: float = 0.5,
+        exchange: str = "SSE",
+        db_instance=None,
+        batch_weeks: int = 10,
+    ) -> dict:
+        """
+        通过交易日历推导周末交易日列表，循环调用 index_weekly(trade_date=周末日期)，
+        获取所有指数的周线行情，并分批插入 index_weekly 表。
+        """
+        import time
+
+        if db_instance is None:
+            logger.error("需要提供数据库实例进行指数周线分批插入")
+            return {}
+
+        trade_cal = self.get_trade_calendar(start_date, end_date, exchange)
+        if trade_cal is None or trade_cal.empty:
+            logger.error("无法获取交易日历，退出指数周线数据获取")
+            return {}
+
+        # 通过 isocalendar 按周分组，取每周最后一个交易日作为周线 trade_date
+        cal = trade_cal.copy()
+        cal["cal_dt"] = pd.to_datetime(cal["cal_date"], format="%Y%m%d")
+        iso = cal["cal_dt"].dt.isocalendar()
+        cal["year"] = iso.year
+        cal["week"] = iso.week
+
+        week_ends = (
+            cal.groupby(["year", "week"])["cal_dt"].max().sort_values().dt.strftime("%Y%m%d").tolist()
+        )
+
+        total_weeks = len(week_ends)
+        logger.info(f"🚀 开始指数周线数据获取和分批插入，共 {total_weeks} 个周")
+
+        stats = {
+            "total_weeks": total_weeks,
+            "successful_weeks": 0,
+            "total_records": 0,
+            "total_batches": 0,
+            "failed_weeks": [],
+            "batch_insert_success": 0,
+            "batch_insert_failed": 0,
+        }
+
+        current_batch_data = []
+        batch_week_dates = []
+
+        for i, week_end in enumerate(week_ends, 1):
+            try:
+                logger.info(f"📅 正在获取 {week_end} 的指数周线数据 ({i}/{total_weeks})")
+
+                df = self.get_index_weekly(trade_date=week_end)
+
+                if df is not None and not df.empty:
+                    current_batch_data.append(df)
+                    batch_week_dates.append(week_end)
+                    stats["successful_weeks"] += 1
+                    logger.info(f"✅ 成功获取 {week_end} 的 {len(df)} 条指数周线数据")
+                else:
+                    logger.warning(f"⚠️ 未获取到 {week_end} 的指数周线数据")
+                    stats["failed_weeks"].append(week_end)
+
+                time.sleep(delay)
+
+                should_insert = (
+                    len(current_batch_data) >= batch_weeks
+                    or i == total_weeks
+                    or len(current_batch_data) >= 20
+                )
+
+                if should_insert and current_batch_data:
+                    batch_df = pd.concat(current_batch_data, ignore_index=True)
+                    batch_records = len(batch_df)
+
+                    logger.info(f"💾 开始插入第 {stats['total_batches'] + 1} 批指数周线数据...")
+                    logger.info(
+                        f"   📊 本批数据: {batch_records:,} 条, 周线日期: {batch_week_dates[0]} ~ {batch_week_dates[-1]}"
+                    )
+
+                    insert_success = db_instance.insert_index_weekly(batch_df)
+
+                    if insert_success:
+                        stats["total_batches"] += 1
+                        stats["total_records"] += batch_records
+                        stats["batch_insert_success"] += 1
+                        logger.info(
+                            f"✅ 第 {stats['total_batches']} 批指数周线数据插入成功，累计 {stats['total_records']:,} 条"
+                        )
+                    else:
+                        stats["batch_insert_failed"] += 1
+                        logger.error(f"❌ 第 {stats['total_batches'] + 1} 批指数周线数据插入失败")
+
+                    current_batch_data = []
+                    batch_week_dates = []
+
+                if i % 10 == 0 or i == total_weeks:
+                    success_rate = stats["successful_weeks"] / i * 100
+                    logger.info(
+                        f"📊 进度: {i}/{total_weeks} ({i/total_weeks*100:.1f}%), "
+                        f"成功获取: {stats['successful_weeks']}周 ({success_rate:.1f}%)"
+                    )
+                    logger.info(f"   💾 已插入指数周线: {stats['total_records']:,} 条记录")
+
+            except Exception as e:
+                logger.error(f"❌ 获取 {week_end} 指数周线数据时发生错误: {e}")
+                stats["failed_weeks"].append(week_end)
+                continue
+
+        logger.info("🎉 指数周线数据获取和插入完成！")
+        logger.info(f"   📅 总周数: {stats['total_weeks']} 周")
+        logger.info(f"   ✅ 成功获取: {stats['successful_weeks']} 周")
+        logger.info(f"   📊 总插入记录: {stats['total_records']:,} 条")
+        logger.info(f"   📦 插入批次: {stats['total_batches']} 次")
+        logger.info(
+            f"   💾 插入成功率: {stats['batch_insert_success']}/{stats['total_batches']}"
+        )
+
+        if stats["failed_weeks"]:
+            logger.warning(f"   ⚠️ 失败的周数: {len(stats['failed_weeks'])} 周")
+
+        return stats
+    
+    def get_major_index_weekly_data(self, start_date: str, end_date: str,
+                                   delay: float = 0.5) -> Optional[pd.DataFrame]:
+        """
+        获取主要指数的周线行情数据
+
+        Args:
+            start_date: 开始日期(YYYYMMDD格式)
+            end_date: 结束日期(YYYYMMDD格式)
+            delay: API调用延迟
+
+        Returns:
+            pd.DataFrame: 主要指数周线行情数据
+        """
+        import time
+
+        logger.info("🚀 开始获取主要指数周线行情数据...")
+
+        major_indexes = [
+            "000001.SH",  # 上证综指
+            "000300.SH",  # 沪深300
+            "000905.SH",  # 中证500
+            "000016.SH",  # 上证50
+            "399001.SZ",  # 深证成指
+            "399006.SZ",  # 创业板指
+            "399303.SZ",  # 国证2000
+            "000852.SH",  # 中证1000
+            "000688.SH",  # 科创50
+        ]
+
+        all_data = []
+        total_indexes = len(major_indexes)
+
+        for i, ts_code in enumerate(major_indexes, 1):
+            try:
+                logger.info(f"正在获取 {ts_code} 指数周线行情 ({i}/{total_indexes})")
+
+                df = self.get_index_weekly(
+                    ts_code=ts_code,
+                    start_date=start_date,
+                    end_date=end_date,
+                )
+
+                if df is not None and not df.empty:
+                    all_data.append(df)
+                    logger.info(f"✅ 成功获取 {ts_code} 的 {len(df)} 条周线行情数据")
+                else:
+                    logger.warning(f"⚠️ 未获取到 {ts_code} 的周线行情数据")
+
+                time.sleep(delay)
+
+            except Exception as e:
+                logger.error(f"❌ 获取 {ts_code} 周线行情时发生错误: {e}")
+                continue
+
+        if not all_data:
+            logger.error("未获取到任何指数周线行情数据")
+            return None
+
+        combined_df = pd.concat(all_data, ignore_index=True)
+
+        logger.info("🎉 主要指数周线行情数据获取完成！")
+        logger.info(f"   📊 总记录数: {len(combined_df)} 条")
+        logger.info(f"   📈 涉及指数: {combined_df['ts_code'].nunique()} 个")
+        logger.info(
+            f"   📅 日期范围: {combined_df['trade_date'].min()} 到 {combined_df['trade_date'].max()}"
+        )
+
         return combined_df
     
     def get_income_data(self, ts_code: str = None, period: str = None, 

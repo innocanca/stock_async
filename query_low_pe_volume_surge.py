@@ -19,6 +19,9 @@ from datetime import datetime, timedelta
 from typing import List, Dict
 
 import pandas as pd
+from fastapi import FastAPI
+from fastapi.responses import JSONResponse
+import uvicorn
 
 # 添加当前目录到Python路径
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -216,7 +219,7 @@ class LowPEVolumeSurgeAnalyzer:
         names: Dict[str, str] = {}
         if not stock_codes:
             return names
-        
+
         try:
             # 单独开启一个数据库连接，避免依赖外部上下文的连接状态
             from database import StockDatabase as _DB  # 避免类型检查干扰
@@ -231,6 +234,139 @@ class LowPEVolumeSurgeAnalyzer:
             logger.error(f"获取股票名称失败: {e}")
 
         return names
+
+    def query_large_cap_below_1y_avg_price(
+        self,
+        min_mv: float = 10000000,
+        max_pe: float = 30.0,
+    ) -> pd.DataFrame:
+        """
+        查询市值大于指定阈值且当前价格低于最近1年平均价、PE 不超过上限的股票列表。
+
+        条件：
+        1. 市值：total_mv >= min_mv（单位：万元），默认 1000 亿 = 10,000,000 万元
+        2. 市盈率：0 < PE(TTM) <= max_pe，默认 30
+        3. 价格：最新收盘价 < 最近 1 年（按周线）收盘价平均值
+
+        返回字段（示例）：
+        - ts_code: 代码
+        - name: 名称
+        - total_mv: 总市值（万元）
+        - pe_ttm: 滚动市盈率
+        - close: 当前收盘价（daily_basic 中最新一日）
+        - avg_close_1y: 最近 1 年周线收盘价的平均值
+        """
+        logger.info(
+            f"🔍 查询市值>{min_mv/10000:.0f}亿、PE<={max_pe}，且当前价格低于最近1年平均价的股票列表..."
+        )
+
+        # 1. 先从 daily_basic 估值数据中筛选出市值 + PE 约束
+        df_valuation = self.get_market_valuations(min_mv=min_mv, max_pe=max_pe)
+        if df_valuation.empty:
+            logger.warning("没有找到符合市值与 PE 条件的股票")
+            return pd.DataFrame()
+
+        target_codes = df_valuation["ts_code"].tolist()
+
+        try:
+            with self.db:
+                cursor = self.db.connection.cursor()
+                # 获取 weekly_data 中最近一条周线日期，作为 1 年窗口的截止
+                cursor.execute("SELECT MAX(trade_date) FROM weekly_data")
+                result = cursor.fetchone()
+                latest_week = result[0] if result else None
+
+                if not latest_week:
+                    logger.error("weekly_data 表中没有周线数据，无法计算最近1年的平均价格")
+                    return pd.DataFrame()
+
+                logger.info(f"   最近周线日期: {latest_week}")
+
+                placeholders = ",".join(["%s"] * len(target_codes))
+                sql = f"""
+                SELECT ts_code, trade_date, close
+                FROM weekly_data
+                WHERE trade_date <= %s
+                  AND trade_date >= DATE_SUB(%s, INTERVAL 365 DAY)
+                  AND ts_code IN ({placeholders})
+                ORDER BY ts_code, trade_date
+                """
+                params = [latest_week, latest_week] + target_codes
+                df_weekly = pd.read_sql(sql, self.db.connection, params=params)
+
+            if df_weekly.empty:
+                logger.warning("没有查询到用于计算最近1年平均价格的周线数据")
+                return pd.DataFrame()
+
+            logger.info("   开始按股票计算最近1年周线收盘价平均值...")
+            stats_rows = []
+            for ts_code, g in df_weekly.groupby("ts_code"):
+                g = g.sort_values("trade_date")
+                if g.empty:
+                    continue
+
+                last_close = float(g.iloc[-1]["close"])
+                avg_close_1y = float(g["close"].mean())
+                if avg_close_1y <= 0:
+                    continue
+
+                if last_close < avg_close_1y:
+                    stats_rows.append(
+                        {
+                            "ts_code": ts_code,
+                            "avg_close_1y": avg_close_1y,
+                            "weekly_last_close": last_close,
+                        }
+                    )
+
+            if not stats_rows:
+                logger.warning("没有股票满足“当前价格低于最近1年平均价”的条件")
+                return pd.DataFrame()
+
+            df_stats = pd.DataFrame(stats_rows)
+
+            # 2. 将 1 年均价信息与估值数据合并
+            merged = pd.merge(df_valuation, df_stats, on="ts_code", how="inner")
+            if merged.empty:
+                logger.warning("估值数据与1年平均价数据合并后为空")
+                return pd.DataFrame()
+
+            # 3. 获取名称，并整理输出
+            stock_names = self.get_stock_names(merged["ts_code"].tolist())
+
+            merged["name"] = merged["ts_code"].map(lambda c: stock_names.get(c, c))
+            merged.rename(
+                columns={
+                    "close": "current_close",
+                    "total_mv": "total_mv_10k",
+                },
+                inplace=True,
+            )
+
+            # 只保留关心的列，并做一点排序：按市值从大到小
+            output = merged[
+                [
+                    "ts_code",
+                    "name",
+                    "total_mv_10k",
+                    "pe_ttm",
+                    "current_close",
+                    "weekly_last_close",
+                    "avg_close_1y",
+                ]
+            ].copy()
+
+            output.sort_values(by=["total_mv_10k"], ascending=False, inplace=True)
+
+            logger.info(
+                f"✅ 最终满足条件的股票数量: {len(output)}（市值>{min_mv/10000:.0f}亿、PE<={max_pe}、现价低于最近1年平均价）"
+            )
+
+            return output
+
+        except Exception as e:
+            logger.error(f"查询市值/PE/一年均价组合条件失败: {e}")
+            return pd.DataFrame()
 
     def run_analysis(self):
         """执行综合筛选：PE + 市值 + 周线放量"""
@@ -336,8 +472,53 @@ class LowPEVolumeSurgeAnalyzer:
         logger.info(f"\n💾 结果已保存至: {output_file}")
 
 
-if __name__ == "__main__":
+# =======================
+# HTTP 接口定义（FastAPI）
+# =======================
+
+app = FastAPI(title="Stock Analyzer API", description="市值/PE/一年均价筛选接口", version="1.0.0")
+
+
+@app.get("/large_cap_below_1y_avg_price")
+def api_large_cap_below_1y_avg_price(
+    min_mv: float = 10000000,
+    max_pe: float = 30.0,
+):
+    """
+    HTTP 接口：
+    查询市值大于 min_mv（万元）、PE 不超过 max_pe，且当前价格低于最近 1 年平均价的股票列表。
+
+    - 默认市值阈值：1000 亿（10,000,000 万元）
+    - 默认 PE 上限：30
+    """
     analyzer = LowPEVolumeSurgeAnalyzer()
-    analyzer.run_analysis()
+    df = analyzer.query_large_cap_below_1y_avg_price(min_mv=min_mv, max_pe=max_pe)
+
+    if df is None or df.empty:
+        return JSONResponse(
+            content={"count": 0, "data": []},
+            status_code=200,
+        )
+
+    records = df.to_dict(orient="records")
+    return {
+        "count": len(records),
+        "data": records,
+    }
+
+
+def main():
+    """程序入口：启动 FastAPI HTTP 服务"""
+    uvicorn.run(
+        "query_low_pe_volume_surge:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=False,
+    )
+
+
+if __name__ == "__main__":
+    # 直接运行本脚本时，通过 main() 启动服务
+    main()
 
 

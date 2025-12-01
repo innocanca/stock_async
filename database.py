@@ -316,6 +316,153 @@ class StockDatabase:
         except Exception as e:
             logger.error(f"创建指数日线行情表失败: {e}")
             return False
+
+    def create_index_weekly_table(self):
+        """创建指数周线行情表"""
+        if not self.connection:
+            logger.error("请先连接数据库")
+            return False
+
+        try:
+            with self.connection.cursor() as cursor:
+                create_table_sql = """
+                CREATE TABLE IF NOT EXISTS index_weekly (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    ts_code VARCHAR(20) NOT NULL COMMENT '指数代码',
+                    trade_date DATE NOT NULL COMMENT '周线交易日期',
+                    close DECIMAL(15,4) COMMENT '收盘点位',
+                    open DECIMAL(15,4) COMMENT '开盘点位',
+                    high DECIMAL(15,4) COMMENT '最高点位',
+                    low DECIMAL(15,4) COMMENT '最低点位',
+                    pre_close DECIMAL(15,4) COMMENT '昨日收盘点',
+                    change_amount DECIMAL(15,4) COMMENT '涨跌点位',
+                    change_pct DECIMAL(8,4) COMMENT '涨跌幅(%)',
+                    vol DECIMAL(20,2) COMMENT '成交量(手)',
+                    amount DECIMAL(20,2) COMMENT '成交额(千元)',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+                    UNIQUE KEY unique_index_week (ts_code, trade_date),
+                    INDEX idx_ts_code (ts_code),
+                    INDEX idx_trade_date (trade_date),
+                    INDEX idx_change_pct (change_pct)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='指数周线行情表';
+                """
+                cursor.execute(create_table_sql)
+                self.connection.commit()
+                logger.info("指数周线行情表创建成功")
+                return True
+        except Exception as e:
+            logger.error(f"创建指数周线行情表失败: {e}")
+            return False
+
+    def create_index_weight_table(self):
+        """创建指数成分和权重表"""
+        if not self.connection:
+            logger.error("请先连接数据库")
+            return False
+
+        try:
+            with self.connection.cursor() as cursor:
+                create_table_sql = """
+                CREATE TABLE IF NOT EXISTS index_weight (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    index_code VARCHAR(20) NOT NULL COMMENT '指数代码',
+                    trade_date DATE NOT NULL COMMENT '交易日期',
+                    con_code VARCHAR(20) NOT NULL COMMENT '成分股代码',
+                    con_name VARCHAR(100) COMMENT '成分股名称',
+                    weight DECIMAL(10,4) COMMENT '权重(%)',
+                    i_weight DECIMAL(10,4) COMMENT '权重(指数内)',
+                    is_new VARCHAR(2) COMMENT '是否最新(Y/N)',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+                    UNIQUE KEY unique_index_con_date (index_code, con_code, trade_date),
+                    INDEX idx_index_code (index_code),
+                    INDEX idx_trade_date (trade_date),
+                    INDEX idx_con_code (con_code)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='指数成分和权重表';
+                """
+                cursor.execute(create_table_sql)
+                self.connection.commit()
+                logger.info("指数成分和权重表创建成功")
+                return True
+        except Exception as e:
+            logger.error(f"创建指数成分和权重表失败: {e}")
+            return False
+
+    def create_etf_daily_table(self):
+        """创建ETF日线行情表"""
+        if not self.connection:
+            logger.error("请先连接数据库")
+            return False
+
+        try:
+            with self.connection.cursor() as cursor:
+                create_table_sql = """
+                CREATE TABLE IF NOT EXISTS etf_daily (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    ts_code VARCHAR(20) NOT NULL COMMENT 'ETF代码',
+                    trade_date DATE NOT NULL COMMENT '交易日期',
+                    open DECIMAL(15,4) COMMENT '开盘价(元)',
+                    high DECIMAL(15,4) COMMENT '最高价(元)',
+                    low DECIMAL(15,4) COMMENT '最低价(元)',
+                    close DECIMAL(15,4) COMMENT '收盘价(元)',
+                    pre_close DECIMAL(15,4) COMMENT '昨收盘价(元)',
+                    change_amount DECIMAL(15,4) COMMENT '涨跌额(元)',
+                    change_pct DECIMAL(8,4) COMMENT '涨跌幅(%)',
+                    vol DECIMAL(20,2) COMMENT '成交量(手)',
+                    amount DECIMAL(20,2) COMMENT '成交额(千元)',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+                    UNIQUE KEY unique_etf_date (ts_code, trade_date),
+                    INDEX idx_ts_code (ts_code),
+                    INDEX idx_trade_date (trade_date),
+                    INDEX idx_change_pct (change_pct)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='ETF日线行情表';
+                """
+                cursor.execute(create_table_sql)
+                self.connection.commit()
+                logger.info("ETF日线行情表创建成功")
+                return True
+        except Exception as e:
+            logger.error(f"创建ETF日线行情表失败: {e}")
+            return False
+
+    def create_etf_basic_table(self):
+        """创建ETF基础信息表"""
+        if not self.connection:
+            logger.error("请先连接数据库")
+            return False
+
+        try:
+            with self.connection.cursor() as cursor:
+                create_table_sql = """
+                CREATE TABLE IF NOT EXISTS etf_basic (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    ts_code VARCHAR(20) NOT NULL UNIQUE COMMENT 'ETF代码',
+                    extname VARCHAR(100) COMMENT 'ETF简称',
+                    index_code VARCHAR(20) COMMENT '跟踪指数代码',
+                    index_name VARCHAR(200) COMMENT '跟踪指数名称',
+                    exchange VARCHAR(10) COMMENT '交易所',
+                    etf_type VARCHAR(20) COMMENT 'ETF类型',
+                    list_date DATE COMMENT '上市日期',
+                    list_status VARCHAR(5) COMMENT '上市状态',
+                    delist_date DATE COMMENT '退市日期',
+                    mgr_name VARCHAR(100) COMMENT '基金管理人',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+                    INDEX idx_ts_code (ts_code),
+                    INDEX idx_index_code (index_code),
+                    INDEX idx_exchange (exchange),
+                    INDEX idx_list_status (list_status)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='ETF基础信息表';
+                """
+                cursor.execute(create_table_sql)
+                self.connection.commit()
+                logger.info("ETF基础信息表创建成功")
+                return True
+        except Exception as e:
+            logger.error(f"创建ETF基础信息表失败: {e}")
+            return False
     
     def insert_daily_data(self, df: pd.DataFrame):
         """
@@ -1303,6 +1450,275 @@ class StockDatabase:
                 
         except Exception as e:
             logger.error(f"插入指数日线行情失败: {e}")
+            self.connection.rollback()
+            return False
+
+    def insert_index_weekly(self, df: pd.DataFrame):
+        """
+        批量插入指数周线行情数据
+
+        Args:
+            df: 包含指数周线行情的DataFrame（对应 index_weekly 接口）
+
+        Returns:
+            bool: 插入是否成功
+        """
+        if not self.connection:
+            logger.error("请先连接数据库")
+            return False
+
+        if df.empty:
+            logger.warning("指数周线行情数据为空，跳过插入")
+            return True
+
+        try:
+            with self.connection.cursor() as cursor:
+                insert_sql = """
+                INSERT INTO index_weekly
+                (ts_code, trade_date, close, open, high, low, pre_close,
+                 change_amount, change_pct, vol, amount)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                close=VALUES(close),
+                open=VALUES(open),
+                high=VALUES(high),
+                low=VALUES(low),
+                pre_close=VALUES(pre_close),
+                change_amount=VALUES(change_amount),
+                change_pct=VALUES(change_pct),
+                vol=VALUES(vol),
+                amount=VALUES(amount),
+                updated_at=CURRENT_TIMESTAMP
+                """
+
+                data_list = []
+                for _, row in df.iterrows():
+                    data_list.append(
+                        (
+                            row.get("ts_code"),
+                            row.get("trade_date"),
+                            row.get("close") if pd.notna(row.get("close")) else None,
+                            row.get("open") if pd.notna(row.get("open")) else None,
+                            row.get("high") if pd.notna(row.get("high")) else None,
+                            row.get("low") if pd.notna(row.get("low")) else None,
+                            row.get("pre_close") if pd.notna(row.get("pre_close")) else None,
+                            row.get("change") if pd.notna(row.get("change")) else None,
+                            row.get("pct_chg") if pd.notna(row.get("pct_chg")) else None,
+                            row.get("vol") if pd.notna(row.get("vol")) else None,
+                            row.get("amount") if pd.notna(row.get("amount")) else None,
+                        )
+                    )
+
+                cursor.executemany(insert_sql, data_list)
+                self.connection.commit()
+
+                logger.info(f"成功插入/更新 {len(data_list)} 条指数周线行情记录")
+                return True
+
+        except Exception as e:
+            logger.error(f"插入指数周线行情失败: {e}")
+            self.connection.rollback()
+            return False
+
+    def insert_index_weight(self, df: pd.DataFrame):
+        """
+        批量插入指数成分和权重数据
+
+        Args:
+            df: 包含指数成分权重数据的DataFrame，对应Tushare index_weight接口输出
+
+        Returns:
+            bool: 插入是否成功
+        """
+        if not self.connection:
+            logger.error("请先连接数据库")
+            return False
+
+        if df.empty:
+            logger.warning("指数成分和权重数据为空，跳过插入")
+            return True
+
+        try:
+            with self.connection.cursor() as cursor:
+                insert_sql = """
+                INSERT INTO index_weight
+                (index_code, trade_date, con_code, con_name, weight, i_weight, is_new)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                con_name=VALUES(con_name),
+                weight=VALUES(weight),
+                i_weight=VALUES(i_weight),
+                is_new=VALUES(is_new),
+                updated_at=CURRENT_TIMESTAMP
+                """
+
+                data_list = []
+
+                def safe_date(val):
+                    if pd.isna(val) or val == "NaT":
+                        return None
+                    return val
+
+                for _, row in df.iterrows():
+                    data_list.append(
+                        (
+                            row.get("index_code") or row.get("ts_code"),
+                            safe_date(row.get("trade_date")),
+                            row.get("con_code"),
+                            row.get("con_name"),
+                            row.get("weight") if pd.notna(row.get("weight")) else None,
+                            row.get("i_weight") if pd.notna(row.get("i_weight")) else None,
+                            row.get("is_new") if pd.notna(row.get("is_new")) else None,
+                        )
+                    )
+
+                cursor.executemany(insert_sql, data_list)
+                self.connection.commit()
+
+                logger.info(f"成功插入/更新 {len(data_list)} 条指数成分和权重记录")
+                return True
+
+        except Exception as e:
+            logger.error(f"插入指数成分和权重失败: {e}")
+            self.connection.rollback()
+            return False
+
+    def insert_etf_daily(self, df: pd.DataFrame):
+        """
+        批量插入ETF日线行情数据
+
+        Args:
+            df: 包含ETF日线行情的DataFrame，对应Tushare fund_daily输出字段
+
+        Returns:
+            bool: 插入是否成功
+        """
+        if not self.connection:
+            logger.error("请先连接数据库")
+            return False
+
+        if df.empty:
+            logger.warning("ETF日线行情数据为空，跳过插入")
+            return True
+
+        try:
+            with self.connection.cursor() as cursor:
+                insert_sql = """
+                INSERT INTO etf_daily
+                (ts_code, trade_date, open, high, low, close, pre_close,
+                 change_amount, change_pct, vol, amount)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                open=VALUES(open),
+                high=VALUES(high),
+                low=VALUES(low),
+                close=VALUES(close),
+                pre_close=VALUES(pre_close),
+                change_amount=VALUES(change_amount),
+                change_pct=VALUES(change_pct),
+                vol=VALUES(vol),
+                amount=VALUES(amount),
+                updated_at=CURRENT_TIMESTAMP
+                """
+
+                data_list = []
+                for _, row in df.iterrows():
+                    data_list.append(
+                        (
+                            row.get("ts_code"),
+                            row.get("trade_date"),
+                            row.get("open") if pd.notna(row.get("open")) else None,
+                            row.get("high") if pd.notna(row.get("high")) else None,
+                            row.get("low") if pd.notna(row.get("low")) else None,
+                            row.get("close") if pd.notna(row.get("close")) else None,
+                            row.get("pre_close") if pd.notna(row.get("pre_close")) else None,
+                            row.get("change") if pd.notna(row.get("change")) else None,
+                            row.get("pct_chg") if pd.notna(row.get("pct_chg")) else None,
+                            row.get("vol") if pd.notna(row.get("vol")) else None,
+                            row.get("amount") if pd.notna(row.get("amount")) else None,
+                        )
+                    )
+
+                cursor.executemany(insert_sql, data_list)
+                self.connection.commit()
+
+                logger.info(f"成功插入/更新 {len(data_list)} 条ETF日线行情记录")
+                return True
+
+        except Exception as e:
+            logger.error(f"插入ETF日线行情失败: {e}")
+            self.connection.rollback()
+            return False
+
+    def insert_etf_basic(self, df: pd.DataFrame):
+        """
+        批量插入ETF基础信息
+
+        Args:
+            df: 包含ETF基础信息的DataFrame
+
+        Returns:
+            bool: 插入是否成功
+        """
+        if not self.connection:
+            logger.error("请先连接数据库")
+            return False
+
+        if df.empty:
+            logger.warning("ETF基础信息数据为空，跳过插入")
+            return True
+
+        try:
+            with self.connection.cursor() as cursor:
+                insert_sql = """
+                INSERT INTO etf_basic
+                (ts_code, extname, index_code, index_name, exchange, etf_type,
+                 list_date, list_status, delist_date, mgr_name)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                extname=VALUES(extname),
+                index_code=VALUES(index_code),
+                index_name=VALUES(index_name),
+                exchange=VALUES(exchange),
+                etf_type=VALUES(etf_type),
+                list_date=VALUES(list_date),
+                list_status=VALUES(list_status),
+                delist_date=VALUES(delist_date),
+                mgr_name=VALUES(mgr_name),
+                updated_at=CURRENT_TIMESTAMP
+                """
+
+                data_list = []
+
+                def safe_date(val):
+                    if pd.isna(val) or val == "NaT":
+                        return None
+                    return val
+
+                for _, row in df.iterrows():
+                    data_list.append(
+                        (
+                            row.get("ts_code"),
+                            row.get("extname") if pd.notna(row.get("extname")) else None,
+                            row.get("index_code") if pd.notna(row.get("index_code")) else None,
+                            row.get("index_name") if pd.notna(row.get("index_name")) else None,
+                            row.get("exchange") if pd.notna(row.get("exchange")) else None,
+                            row.get("etf_type") if pd.notna(row.get("etf_type")) else None,
+                            safe_date(row.get("list_date")),
+                            row.get("list_status") if pd.notna(row.get("list_status")) else None,
+                            safe_date(row.get("delist_date")),
+                            row.get("mgr_name") if pd.notna(row.get("mgr_name")) else None,
+                        )
+                    )
+
+                cursor.executemany(insert_sql, data_list)
+                self.connection.commit()
+
+                logger.info(f"成功插入/更新 {len(data_list)} 条ETF基础信息记录")
+                return True
+
+        except Exception as e:
+            logger.error(f"插入ETF基础信息失败: {e}")
             self.connection.rollback()
             return False
     

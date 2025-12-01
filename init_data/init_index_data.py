@@ -146,7 +146,7 @@ def fetch_and_store_index_basic_data(fetcher: StockDataFetcher, db: StockDatabas
 def fetch_and_store_index_daily_data(fetcher: StockDataFetcher, db: StockDatabase, 
                                     start_date: str = None, end_date: str = None) -> dict:
     """
-    获取并存储指数日线行情数据
+    获取并存储“全部指数”的日线行情数据（按交易日全市场抓取）
     
     Args:
         fetcher: 数据获取器实例
@@ -174,45 +174,27 @@ def fetch_and_store_index_daily_data(fetcher: StockDataFetcher, db: StockDatabas
         start_date = start_dt.strftime('%Y%m%d')
         end_date = end_dt.strftime('%Y%m%d')
     
-    logger.info(f"📊 开始获取指数日线行情数据 ({start_date} 到 {end_date})...")
+    logger.info(f"📊 开始获取【全部指数】日线行情数据 ({start_date} 到 {end_date})...")
     
     try:
-        # 获取主要指数的日线行情数据
-        df = fetcher.get_major_index_daily_data(start_date, end_date)
+        # 按交易日循环获取所有指数日线并分批插库
+        index_stats = fetcher.get_all_index_daily_by_dates_with_batch_insert(
+            start_date=start_date,
+            end_date=end_date,
+            delay=0.5,
+            exchange='SSE',
+            db_instance=db,
+            batch_days=10,
+        )
         
-        if df is None or df.empty:
+        if not index_stats:
             logger.warning("⚠️ 未获取到任何指数日线行情数据")
             return stats
         
-        stats['total_records'] = len(df)
-        stats['total_indexes'] = df['ts_code'].nunique() if 'ts_code' in df.columns else 0
+        stats['total_records'] = index_stats.get('total_records', 0)
+        stats['successful_insert'] = stats['total_records'] > 0
+        # total_indexes 无法直接从批量统计拿到，这里留空或后续按需查询
         
-        # 统计日期范围
-        if 'trade_date' in df.columns:
-            stats['date_range'] = {
-                'start_date': df['trade_date'].min(),
-                'end_date': df['trade_date'].max()
-            }
-        
-        logger.info(f"📈 成功获取 {stats['total_records']} 条指数日线行情数据")
-        logger.info(f"📈 涉及指数: {stats['total_indexes']} 个")
-        
-        # 插入数据库
-        logger.info("💾 开始插入指数日线行情数据到数据库...")
-        
-        if db.insert_index_daily(df):
-            stats['successful_insert'] = True
-            logger.info("✅ 指数日线行情数据插入成功！")
-            
-            # 显示统计信息
-            logger.info("📊 指数日线行情统计：")
-            logger.info(f"   总记录数: {stats['total_records']} 条")
-            logger.info(f"   涉及指数: {stats['total_indexes']} 个")
-            if stats['date_range']:
-                logger.info(f"   日期范围: {stats['date_range']['start_date']} 到 {stats['date_range']['end_date']}")
-        else:
-            logger.error("❌ 指数日线行情数据插入失败")
-            
     except Exception as e:
         logger.error(f"❌ 获取和存储指数日线行情时发生错误: {e}")
     

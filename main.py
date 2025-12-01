@@ -1,3 +1,23 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+项目入口：通过此文件启动 FastAPI 服务。
+
+使用方法：
+    python main.py
+"""
+
+from query_low_pe_volume_surge import main as run_server
+
+
+def main():
+    """启动股票筛选 HTTP 服务"""
+    run_server()
+
+
+if __name__ == "__main__":
+    main()
+
 # -*- coding: utf-8 -*-
 """
 股票数据获取主程序
