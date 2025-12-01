@@ -19,9 +19,6 @@ from datetime import datetime, timedelta
 from typing import List, Dict
 
 import pandas as pd
-from fastapi import FastAPI
-from fastapi.responses import JSONResponse
-import uvicorn
 
 # 添加当前目录到Python路径
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -472,53 +469,10 @@ class LowPEVolumeSurgeAnalyzer:
         logger.info(f"\n💾 结果已保存至: {output_file}")
 
 
-# =======================
-# HTTP 接口定义（FastAPI）
-# =======================
-
-app = FastAPI(title="Stock Analyzer API", description="市值/PE/一年均价筛选接口", version="1.0.0")
-
-
-@app.get("/large_cap_below_1y_avg_price")
-def api_large_cap_below_1y_avg_price(
-    min_mv: float = 10000000,
-    max_pe: float = 30.0,
-):
-    """
-    HTTP 接口：
-    查询市值大于 min_mv（万元）、PE 不超过 max_pe，且当前价格低于最近 1 年平均价的股票列表。
-
-    - 默认市值阈值：1000 亿（10,000,000 万元）
-    - 默认 PE 上限：30
-    """
-    analyzer = LowPEVolumeSurgeAnalyzer()
-    df = analyzer.query_large_cap_below_1y_avg_price(min_mv=min_mv, max_pe=max_pe)
-
-    if df is None or df.empty:
-        return JSONResponse(
-            content={"count": 0, "data": []},
-            status_code=200,
-        )
-
-    records = df.to_dict(orient="records")
-    return {
-        "count": len(records),
-        "data": records,
-    }
-
-
-def main():
-    """程序入口：启动 FastAPI HTTP 服务"""
-    uvicorn.run(
-        "query_low_pe_volume_surge:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=False,
-    )
-
-
 if __name__ == "__main__":
-    # 直接运行本脚本时，通过 main() 启动服务
-    main()
+    analyzer = LowPEVolumeSurgeAnalyzer()
+    analyzer.run_analysis()
+
+
 
 
