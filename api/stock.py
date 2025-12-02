@@ -7,6 +7,9 @@
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
+from datetime import datetime, timedelta
+
+from database import StockDatabase
 from query_low_pe_volume_surge import LowPEVolumeSurgeAnalyzer
 
 router = APIRouter()
@@ -38,5 +41,58 @@ def api_large_cap_below_1y_avg_price(
         "data": records,
     }
 
+
+@router.get("/price_volume_1y")
+def api_price_volume_1y(ts_code: str):
+    """
+    根据指定股票 ts_code 查询最近 1 年的日线价格和成交量数据（从本地数据库 daily_data 表读取）。
+
+    返回字段示例：
+    - trade_date: 交易日期（YYYY-MM-DD）
+    - open/high/low/close: 当日价格
+    - vol: 当日成交量
+    - amount: 当日成交额
+    """
+    # 计算最近 1 年的起止日期（按自然日向前推 365 天）
+    end_date = datetime.now().date()
+    start_date = end_date - timedelta(days=365)
+
+    db = StockDatabase()
+    if not db.connect():
+        return JSONResponse(
+            content={"ts_code": ts_code, "count": 0, "data": [], "error": "database_connect_failed"},
+            status_code=500,
+        )
+
+    try:
+        import pandas as pd
+
+        sql = """
+        SELECT trade_date, open, high, low, close, vol, amount
+        FROM daily_data
+        WHERE ts_code = %s
+          AND trade_date >= %s
+          AND trade_date <= %s
+        ORDER BY trade_date ASC
+        """
+        params = [ts_code, start_date, end_date]
+        df = pd.read_sql(sql, db.connection, params=params)
+    finally:
+        db.disconnect()
+
+    if df is None or df.empty:
+        return JSONResponse(
+            content={"ts_code": ts_code, "count": 0, "data": []},
+            status_code=200,
+        )
+
+    # 将日期转为字符串，方便前端使用
+    df["trade_date"] = pd.to_datetime(df["trade_date"]).dt.strftime("%Y-%m-%d")
+    records = df.to_dict(orient="records")
+    return {
+        "ts_code": ts_code,
+        "count": len(records),
+        "data": records,
+    }
 
 
