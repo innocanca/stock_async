@@ -108,6 +108,9 @@ def fetch_and_store_etf_basic(fetcher: StockDataFetcher, db: StockDatabase) -> d
             
             logger.info(f"🔍 从 fund_basic 发现 {len(df_missing)} 只在 etf_basic 中缺失的场内基金/ETF")
             
+            # 使用 .copy() 避免 SettingWithCopyWarning
+            df_missing = df_missing.copy()
+            
             # 确保列对齐
             for col in df_etf.columns:
                 if col not in df_missing.columns:

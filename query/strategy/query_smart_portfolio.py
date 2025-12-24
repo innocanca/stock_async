@@ -40,39 +40,45 @@ class SmartPortfolioAnalyzer:
         logger.info("   - 正在筛选[稳健趋势]标的...")
         res_trend = self.yang_analyzer.get_analysis_results(min_consecutive=3)
         for r in res_trend[:3]: # 取前3
+            weeks = r.get("consecutive_yang_weeks") or 0
             candidates.append({
                 "ts_code": r["ts_code"],
                 "名称": r["stock_name"],
                 "策略标签": "稳健趋势",
                 "行业": r["industry"],
-                "核心指标": f"周线{r['consecutive_yang_weeks']}连阳",
-                "权重分数": 90 + r["consecutive_yang_weeks"]
+                "核心指标": f"周线{weeks}连阳",
+                "权重分数": 90 + weeks
             })
 
         # 策略 B: 价值爆发 (低PE+放量)
         logger.info("   - 正在筛选[价值爆发]标的...")
         res_value = self.low_pe_analyzer.get_analysis_results(min_mv=2000000, min_ratio=1.5)
         for r in res_value[:3]:
+            pe_val = r.get("pe_ttm")
+            pe_str = f"{pe_val:.1f}" if pe_val is not None else "N/A"
+            vol_ratio = r.get("周放量倍数") or 0
+            
             candidates.append({
                 "ts_code": r["ts_code"],
                 "名称": r["名称"],
                 "策略标签": "价值爆发",
                 "行业": "未知", # 稍后补全
-                "核心指标": f"放量{r['周放量倍数']:.1f}倍 / PE {r['pe_ttm']:.1f}",
-                "权重分数": 85 + r["周放量倍数"]
+                "核心指标": f"放量{vol_ratio:.1f}倍 / PE {pe_str}",
+                "权重分数": 85 + vol_ratio
             })
 
         # 策略 C: 底部反转
         logger.info("   - 正在筛选[底部反转]标的...")
         res_rev = self.reversal_analyzer.get_analysis_results(vol_ratio=1.8)
         for r in res_rev[:3]:
+            vol_ratio = r.get("放量倍数") or 0
             candidates.append({
                 "ts_code": r["ts_code"],
                 "名称": r["名称"],
                 "策略标签": "底部反转",
                 "行业": "未知",
-                "核心指标": f"超跌反转 / 放量{r['放量倍数']:.1f}倍",
-                "权重分数": 80 + r["放量倍数"]
+                "核心指标": f"超跌反转 / 放量{vol_ratio:.1f}倍",
+                "权重分数": 80 + vol_ratio
             })
 
         if not candidates:
