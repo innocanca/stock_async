@@ -99,7 +99,7 @@ class WeeklyBottomReversalAnalyzer:
 
             results = []
             # 获取名称
-            from query_low_pe_volume_surge import LowPEVolumeSurgeAnalyzer
+            from query.strategy.query_low_pe_volume_surge import LowPEVolumeSurgeAnalyzer
             stock_names = LowPEVolumeSurgeAnalyzer().get_stock_names(stock_codes)
 
             for ts_code, g in df_weekly.groupby("ts_code"):
