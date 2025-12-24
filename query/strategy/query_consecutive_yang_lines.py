@@ -20,8 +20,11 @@ import pandas as pd
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict
 
-# 添加当前目录到Python路径
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# 添加项目根目录到 Python 路径，确保可以导入根目录下的 database / fetcher / log_config
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(CURRENT_DIR))
+if PROJECT_ROOT not in sys.path:
+    sys.path.append(PROJECT_ROOT)
 
 from database import StockDatabase
 from fetcher import StockDataFetcher

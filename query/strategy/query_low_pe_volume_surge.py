@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-查询低估值且周线放量的主板大市值股票
+查询周线放量的主板股票（市值>200亿，不限制 PE）
 
-筛选条件：
+筛选条件（当前版本）：
 1. 市场板块：主板（60xxxx.SH / 00xxxx.SZ）
-2. 总市值：> 500亿（total_mv >= 5,000,000 万元）
-3. 估值指标：PE(TTM) <= 30
-4. 成交量：最近一周周线成交量 > 过去3周所有周最大成交量 × 1.3
+2. 市值：总市值 > 200亿（total_mv >= 2,000,000 万元）
+3. 成交量：最近一周周线成交量 > 过去3周所有周最大成交量 × 1.3，且放量当周为上涨周
 
 使用方法：
     python query_low_pe_volume_surge.py
@@ -16,12 +15,12 @@
 import sys
 import os
 from datetime import datetime, timedelta
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 import pandas as pd
 
-# 添加当前目录到Python路径
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# 添加项目根目录到 Python 路径
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from database import StockDatabase
 from fetcher import StockDataFetcher
@@ -37,7 +36,11 @@ class LowPEVolumeSurgeAnalyzer:
         self.db = StockDatabase()
         self.fetcher = StockDataFetcher()
 
-    def get_market_valuations(self, min_mv: float = 5000000, max_pe: float = 30) -> pd.DataFrame:
+    def get_market_valuations(
+        self,
+        min_mv: Optional[float] = 5000000,
+        max_pe: Optional[float] = 30,
+    ) -> pd.DataFrame:
         """
         获取市场估值数据 (市值、PE)，并筛选主板 + 大市值 + 低PE
 
@@ -73,12 +76,18 @@ class LowPEVolumeSurgeAnalyzer:
             logger.info(f"   主板股票数量: {len(df)}")
 
             # 市值过滤（单位：万元）
-            df = df[df["total_mv"] >= min_mv]
-            logger.info(f"   市值>{min_mv/10000:.0f}亿的股票数量: {len(df)}")
+            if min_mv is not None:
+                df = df[df["total_mv"] >= min_mv]
+                logger.info(f"   市值>{min_mv/10000:.0f}亿的股票数量: {len(df)}")
+            else:
+                logger.info("   不限制总市值")
 
             # PE 过滤：0 < PE <= max_pe
-            df = df[(df["pe_ttm"] > 0) & (df["pe_ttm"] <= max_pe)]
-            logger.info(f"   PE(TTM)<={max_pe} 的股票数量: {len(df)}")
+            if max_pe is not None:
+                df = df[(df["pe_ttm"] > 0) & (df["pe_ttm"] <= max_pe)]
+                logger.info(f"   PE(TTM)<={max_pe} 的股票数量: {len(df)}")
+            else:
+                logger.info("   不限制 PE(TTM)")
 
             return df
 
@@ -95,6 +104,7 @@ class LowPEVolumeSurgeAnalyzer:
         """
         计算周线放量情况 + 判断是否“刚启动”：
         - 放量：最近一周成交量 / 过去 N 周「最大成交量」
+        - 放量当周要求是上涨周：最近一周周涨跌幅 > 0
         - 刚启动（启动车逻辑）粗略定义：
             * 前 3 周累计涨跌幅 < 10%（之前以震荡/整理为主）
             * 过去一年价格位置仍在区间下半部（未大幅拉升，position_1y <= 0.5）
@@ -188,7 +198,8 @@ class LowPEVolumeSurgeAnalyzer:
                     and pos_1y <= 0.5
                 )
 
-                if ratio >= min_ratio:
+                # 只保留“放量且上涨”的周线：放量满足阈值，且当周涨跌幅为正
+                if ratio >= min_ratio and last_pct > 0:
                     results.append(
                         {
                             "ts_code": ts_code,
@@ -365,83 +376,15 @@ class LowPEVolumeSurgeAnalyzer:
             logger.error(f"查询市值/PE/一年均价组合条件失败: {e}")
             return pd.DataFrame()
 
-    def run_analysis(self):
-        """执行综合筛选：PE + 市值 + 周线放量"""
+    def run_analysis(self, min_mv: float = 2000000, max_pe: Optional[float] = None, min_ratio: float = 1.3):
+        """执行综合筛选：主板 + 市值>200亿 + 周线放量（不限制 PE）"""
+        results = self.get_analysis_results(min_mv=min_mv, max_pe=max_pe, min_ratio=min_ratio)
+        if not results:
+            return
+
+        final_df = pd.DataFrame(results)
         logger.info(
-            "🚀 开始筛选：主板、市值>500亿、PE<=30 且最近一周周线放量>=2倍 的股票..."
-        )
-
-        # 1. 先从估值维度筛选出主板+大市值+低PE
-        df_valuation = self.get_market_valuations(min_mv=5000000, max_pe=30)
-        if df_valuation.empty:
-            logger.warning("没有找到符合估值条件的股票")
-            return
-
-        target_codes = df_valuation["ts_code"].tolist()
-
-        with self.db:
-            # 2. 在估值合格的股票里，再筛选周线放量
-            surge_df = self.get_weekly_volume_surge(
-                stock_codes=target_codes, min_ratio=1.3, lookback_weeks=3
-            )
-            if surge_df.empty:
-                logger.warning("在符合估值条件的股票中，没有找到满足「最近一周 > 过去3周最大成交量×1.3」的标的")
-                return
-
-        # 3. 合并估值 + 周线放量信息
-        merged = pd.merge(df_valuation, surge_df, on="ts_code", how="inner")
-        if merged.empty:
-            logger.warning("估值数据与周线放量数据合并后为空")
-            return
-
-        # 3.1 只保留“一年内区间位置在下半部”的标的
-        if "position_1y" in merged.columns:
-            before_cnt = len(merged)
-            merged = merged[merged["position_1y"].notna() & (merged["position_1y"] <= 0.5)].copy()
-            logger.info(f"   按一年区间下半部过滤: {before_cnt} -> {len(merged)} 只")
-            if merged.empty:
-                logger.warning("当前没有满足“一年内区间位置在下半部”的标的")
-                return
-
-        # 4. 获取股票名称
-        stock_names = self.get_stock_names(merged["ts_code"].tolist())
-
-        # 5. 组织最终结果
-        final_rows = []
-        for _, row in merged.iterrows():
-            ts_code = row["ts_code"]
-            final_rows.append(
-                {
-                    "代码": ts_code,
-                    "名称": stock_names.get(ts_code, ts_code),
-                    "市值(亿)": row["total_mv"] / 10000,
-                    "PE(TTM)": row["pe_ttm"],
-                    "PB": row["pb"],
-                    "现价": row["close"],
-                    "最近周线日期": row["latest_week"],
-                    "最近一周成交量": row["last_week_vol"],
-                    "过去3周最大成交量": row["max_prev_vol"],
-                    "周放量倍数": row["volume_ratio"],
-                    "是否刚启动": bool(row.get("is_startup", False)),
-                    "最近周涨跌幅%": row.get("last_week_pct_chg"),
-                    "前三周累计涨跌幅%": row.get("prev3_sum_pct_chg"),
-                    "一年区间位置": row.get("position_1y"),
-                }
-            )
-
-        if not final_rows:
-            logger.warning("没有最终结果")
-            return
-
-        final_df = pd.DataFrame(final_rows)
-        # 优先按“刚启动”标记排序，其次按放量倍数 + 最近周涨幅，再按市值从大到小
-        final_df = final_df.sort_values(
-            by=["是否刚启动", "周放量倍数", "最近周涨跌幅%", "市值(亿)"],
-            ascending=[False, False, False, False],
-        )
-
-        logger.info(
-            f"\n🎉 筛选结果 (主板, 市值>500亿, PE<=20, 最近一周 > 过去3周最大成交量×1.3): 共 {len(final_df)} 只"
+            f"\n🎉 筛选结果 (主板, 最近一周 > 过去3周最大成交量×{min_ratio} 且放量周为上涨周): 共 {len(final_df)} 只"
         )
         logger.info("=" * 140)
         logger.info(
@@ -461,12 +404,92 @@ class LowPEVolumeSurgeAnalyzer:
 
         logger.info("=" * 140)
 
-        # 6. 保存到 CSV
-        output_file = (
-            f"low_pe_volume_surge_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    def get_analysis_results(
+        self,
+        min_mv: float = 2000000,
+        max_pe: Optional[float] = None,
+        min_ratio: float = 1.3,
+        lookback_weeks: int = 3
+    ) -> List[Dict]:
+        """
+        获取综合筛选结果列表，主要供 API 调用。
+        """
+        logger.info(
+            f"🚀 开始综合筛选：市值>{min_mv/10000:.0f}亿, 放量阈值>{min_ratio}倍..."
         )
-        final_df.to_csv(output_file, index=False, encoding="utf-8-sig")
-        logger.info(f"\n💾 结果已保存至: {output_file}")
+        
+        # 1. 先从估值维度获取主板股票，并限制市值>200亿（PE 仅作为展示字段，不作过滤）
+        df_valuation = self.get_market_valuations(min_mv=min_mv, max_pe=max_pe)
+        if df_valuation.empty:
+            logger.warning("没有找到符合估值条件的股票")
+            return []
+
+        target_codes = df_valuation["ts_code"].tolist()
+
+        with self.db:
+            # 2. 在估值合格的股票里，再筛选周线放量
+            surge_df = self.get_weekly_volume_surge(
+                stock_codes=target_codes, min_ratio=min_ratio, lookback_weeks=lookback_weeks
+            )
+            if surge_df.empty:
+                logger.warning(f"在符合估值条件的股票中，没有找到满足「最近一周 > 过去{lookback_weeks}周最大成交量×{min_ratio}」的标的")
+                return []
+
+        # 3. 合并估值 + 周线放量信息
+        merged = pd.merge(df_valuation, surge_df, on="ts_code", how="inner")
+        if merged.empty:
+            logger.warning("估值数据与周线放量数据合并后为空")
+            return []
+
+        # 3.1 只保留“一年内区间位置在下半部”的标的
+        if "position_1y" in merged.columns:
+            before_cnt = len(merged)
+            merged = merged[merged["position_1y"].notna() & (merged["position_1y"] <= 0.5)].copy()
+            logger.info(f"   按一年区间下半部过滤: {before_cnt} -> {len(merged)} 只")
+            if merged.empty:
+                logger.warning("当前没有满足“一年内区间位置在下半部”的标的")
+                return []
+
+        # 4. 获取股票名称
+        stock_names = self.get_stock_names(merged["ts_code"].tolist())
+
+        # 5. 组织最终结果
+        final_rows = []
+        for _, row in merged.iterrows():
+            ts_code = row["ts_code"]
+            final_rows.append(
+                {
+                    "ts_code": ts_code,
+                    "代码": ts_code,
+                    "名称": stock_names.get(ts_code, ts_code),
+                    "市值(亿)": float(row["total_mv"] / 10000),
+                    "total_mv": float(row["total_mv"]),
+                    "pe_ttm": float(row["pe_ttm"]) if pd.notna(row["pe_ttm"]) else None,
+                    "PE(TTM)": float(row["pe_ttm"]) if pd.notna(row["pe_ttm"]) else None,
+                    "pb": float(row["pb"]) if pd.notna(row["pb"]) else None,
+                    "PB": float(row["pb"]) if pd.notna(row["pb"]) else None,
+                    "close": float(row["close"]),
+                    "现价": float(row["close"]),
+                    "latest_week": str(row["latest_week"]),
+                    "最近周线日期": str(row["latest_week"]),
+                    "volume_ratio": float(row["volume_ratio"]),
+                    "周放量倍数": float(row["volume_ratio"]),
+                    "is_startup": bool(row.get("is_startup", False)),
+                    "是否刚启动": bool(row.get("is_startup", False)),
+                    "last_week_pct_chg": float(row.get("last_week_pct_chg", 0)),
+                    "最近周涨跌幅%": float(row.get("last_week_pct_chg", 0)),
+                    "position_1y": float(row.get("position_1y", 0)) if pd.notna(row.get("position_1y")) else None,
+                    "一年区间位置": float(row.get("position_1y", 0)) if pd.notna(row.get("position_1y")) else None,
+                }
+            )
+
+        # 排序
+        final_rows.sort(
+            key=lambda x: (x["是否刚启动"], x["周放量倍数"], x["最近周涨跌幅%"], x["市值(亿)"]),
+            reverse=True
+        )
+        
+        return final_rows
 
 
 if __name__ == "__main__":

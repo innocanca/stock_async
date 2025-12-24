@@ -25,7 +25,8 @@ from typing import Dict, List
 
 import pandas as pd
 
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# 添加项目根目录到 Python 路径
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from database import StockDatabase
 from log_config import get_logger
@@ -245,10 +246,7 @@ class ETFWeeklyVolumeSurgeAnalyzer:
 
         logger.info("=" * 120)
 
-        # 保存到 CSV 方便进一步分析
-        output_file = f"etf_weekly_volume_surge_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-        final_df.to_csv(output_file, index=False, encoding="utf-8-sig")
-        logger.info(f"💾 结果已保存至: {output_file}")
+        
 
 
 if __name__ == "__main__":

@@ -253,9 +253,9 @@ def main() -> bool:
     ok_daily = sync_daily_data()
     ok_weekly = sync_weekly_data(weeks_back=8)
     ok_etf_daily = sync_etf_daily_data(days_back=5)
-    ok_fin = sync_financial_data()
+    #ok_fin = sync_financial_data()
 
-    total_ok = ok_basic and ok_daily and ok_weekly and ok_etf_daily and ok_fin
+    total_ok = ok_basic and ok_daily and ok_weekly and ok_etf_daily #and ok_fin
 
     duration = datetime.now() - start_time
     logger.info("==============================================")
@@ -264,7 +264,7 @@ def main() -> bool:
     logger.info(f"   日线行情 daily   : {'✅' if ok_daily else '❌'}")
     logger.info(f"   周线行情 weekly  : {'✅' if ok_weekly else '❌'}")
     logger.info(f"   ETF日线 etf_daily: {'✅' if ok_etf_daily else '❌'}")
-    logger.info(f"   财务&分红数据    : {'✅' if ok_fin else '❌'}")
+    #logger.info(f"   财务&分红数据    : {'✅' if ok_fin else '❌'}")
     logger.info(f"   总耗时           : {duration}")
 
     if total_ok:

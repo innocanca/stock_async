@@ -21,8 +21,11 @@ import numpy as np
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict
 
-# 添加当前目录到Python路径
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# 添加项目根目录到 Python 路径，确保可以导入根目录下的 database / fetcher / log_config
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(CURRENT_DIR))
+if PROJECT_ROOT not in sys.path:
+    sys.path.append(PROJECT_ROOT)
 
 from database import StockDatabase
 from fetcher import StockDataFetcher
@@ -38,7 +41,7 @@ class AccurateMarketCapAnalyzer:
     def __init__(self):
         self.db = StockDatabase()
         self.fetcher = StockDataFetcher()
-    
+
     def get_all_main_board_weekly_data(self, weeks_back: int = 12) -> Optional[pd.DataFrame]:
         """
         获取所有主板股票的周线数据
@@ -419,10 +422,7 @@ def main():
         if result_df is not None and not result_df.empty:
             display_accurate_results(result_df)
             
-            # 保存结果到文件
-            output_file = f"accurate_large_cap_yang_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-            result_df.to_csv(output_file, index=False, encoding='utf-8-sig')
-            logger.info(f"\n💾 结果已保存到文件: {output_file}")
+           
             
         else:
             logger.error("❌ 未找到符合条件的千亿市值股票")

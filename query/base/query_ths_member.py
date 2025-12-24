@@ -22,6 +22,13 @@ python3 query_ths_member.py --stats              # 显示统计信息
 import argparse
 import logging
 import sys
+import os
+
+# 添加项目根目录到 Python 路径
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if PROJECT_ROOT not in sys.path:
+    sys.path.append(PROJECT_ROOT)
+
 from database import StockDatabase
 
 # 配置日志

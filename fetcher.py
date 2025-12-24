@@ -405,14 +405,30 @@ class StockDataFetcher:
         if use_cache:
             try:
                 import os
-                
+
                 if os.path.exists(cache_file):
                     # 检查文件修改时间
                     file_mtime = datetime.fromtimestamp(os.path.getmtime(cache_file))
                     if datetime.now() - file_mtime < timedelta(days=7):  # 7天内的缓存有效
                         with open(cache_file, 'r', encoding='utf-8') as f:
-                            cached_stocks = [line.strip() for line in f.readlines() if line.strip()]
+                            raw_lines = [line.strip() for line in f.readlines() if line.strip()]
+
+                        cached_stocks: List[str] = []
+                        for line in raw_lines:
+                            # 兼容旧版本写错的 "\n" 文本：一整行里带很多 "\n"
+                            # 例如: "000001.SZ\n000002.SZ\n..."（而不是实际换行）
+                            if "\\n" in line:
+                                parts = [p for p in line.split("\\n") if p]
+                                cached_stocks.extend(parts)
+                            else:
+                                cached_stocks.append(line)
+
                         logger.info(f"从缓存文件读取到 {len(cached_stocks)} 只主板股票")
+                        if len(cached_stocks) == 1 and "\\n" in raw_lines[0]:
+                            logger.warning(
+                                "检测到旧版本主板缓存格式错误（单行包含大量 '\\n'），"
+                                "已自动拆分为多只股票；建议保留当前修复后的缓存文件。"
+                            )
                         return cached_stocks
             except Exception as e:
                 logger.warning(f"读取缓存文件失败: {e}")
@@ -440,11 +456,11 @@ class StockDataFetcher:
                 stock_codes = main_board_df['ts_code'].tolist()
                 logger.info(f"从API获取到 {len(stock_codes)} 只A股主板股票")
                 
-                # 保存到缓存文件
+                # 保存到缓存文件（每个代码一行，避免写入 '\n' 文本）
                 try:
                     with open(cache_file, 'w', encoding='utf-8') as f:
                         for code in stock_codes:
-                            f.write(f"{code}\\n")
+                            f.write(f"{code}\n")
                     logger.info("股票列表已保存到缓存文件")
                 except Exception as e:
                     logger.warning(f"保存缓存文件失败: {e}")

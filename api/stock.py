@@ -8,6 +8,7 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
 from datetime import datetime, timedelta
+from typing import List, Dict, Optional
 
 from database import StockDatabase
 from query_low_pe_volume_surge import LowPEVolumeSurgeAnalyzer
@@ -39,6 +40,32 @@ def api_large_cap_below_1y_avg_price(
     return {
         "count": len(records),
         "data": records,
+    }
+
+
+@router.get("/low_pe_volume_surge")
+def api_low_pe_volume_surge(
+    min_mv: float = 2000000,
+    max_pe: Optional[float] = None,
+    min_ratio: float = 1.3,
+):
+    """
+    查询主板放量上涨股票（策略：低PE + 周线放量）。
+
+    - min_mv: 最小总市值（万元），默认 200 亿 (2,000,000)
+    - max_pe: 最大市盈率 (TTM)，默认不限制
+    - min_ratio: 周线放量倍数阈值，默认 1.3
+    """
+    analyzer = LowPEVolumeSurgeAnalyzer()
+    results = analyzer.get_analysis_results(
+        min_mv=min_mv, 
+        max_pe=max_pe, 
+        min_ratio=min_ratio
+    )
+
+    return {
+        "count": len(results),
+        "data": results,
     }
 
 
