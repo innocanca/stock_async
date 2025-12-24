@@ -227,32 +227,49 @@ class ConsecutiveYangLinesAnalyzer:
         Returns:
             pd.DataFrame: 分析结果
         """
+        results = self.get_analysis_results(min_consecutive=3)
+        if not results:
+            return pd.DataFrame()
+        return pd.DataFrame(results)
+
+    def get_analysis_results(self, min_consecutive: int = 3) -> List[Dict]:
+        """
+        获取分析结果列表，供 API 调用。
+        """
         try:
-            logger.info("🔍 开始分析周线三连阳及以上的千亿市值股票...")
+            logger.info(f"🔍 开始分析周线连续阳线：最少 {min_consecutive} 周...")
             logger.info(f"📊 分析范围：{len(self.mega_cap_stocks)} 只千亿市值股票")
             
             # 1. 获取千亿市值股票的周线数据
             weekly_df = self.get_mega_cap_weekly_data(weeks_back=12)
             if weekly_df is None or weekly_df.empty:
-                return None
+                return []
             
             # 2. 分析连续阳线
-            yang_lines_df = self.analyze_consecutive_yang_lines(weekly_df, min_consecutive=3)
-            if yang_lines_df.empty:
-                logger.error("未找到连续三周以上阳线的千亿市值股票")
-                # 尝试降低标准到2周
-                yang_lines_df = self.analyze_consecutive_yang_lines(weekly_df, min_consecutive=2)
-                if yang_lines_df.empty:
-                    return None
-                else:
-                    logger.info("降低标准：显示连续两周阳线的股票")
+            result_df = self.analyze_consecutive_yang_lines(weekly_df, min_consecutive=min_consecutive)
             
-            logger.info(f"✅ 找到 {len(yang_lines_df)} 只符合条件的千亿市值股票")
-            return yang_lines_df
+            # 如果 3 周没有结果，自动尝试 2 周
+            if result_df.empty and min_consecutive >= 3:
+                logger.info(f"未找到连续 {min_consecutive} 周阳线，尝试降低到 2 周...")
+                result_df = self.analyze_consecutive_yang_lines(weekly_df, min_consecutive=2)
+            
+            if result_df.empty:
+                return []
+            
+            # 3. 转换数值类型为标准 Python 类型，避免 JSON 序列化错误
+            records = result_df.to_dict(orient="records")
+            for r in records:
+                for k, v in r.items():
+                    if pd.isna(v):
+                        r[k] = None
+                    elif hasattr(v, 'item'): # numpy types
+                        r[k] = v.item()
+            
+            return records
             
         except Exception as e:
             logger.error(f"分析失败: {e}")
-            return None
+            return []
 
 
 def display_yang_lines_results(df: pd.DataFrame):

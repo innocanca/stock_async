@@ -12,6 +12,8 @@ from typing import List, Dict, Optional
 
 from database import StockDatabase
 from query_low_pe_volume_surge import LowPEVolumeSurgeAnalyzer
+from query_consecutive_yang_lines import ConsecutiveYangLinesAnalyzer
+from query_weekly_bottom_reversal import WeeklyBottomReversalAnalyzer
 
 router = APIRouter()
 
@@ -61,6 +63,48 @@ def api_low_pe_volume_surge(
         min_mv=min_mv, 
         max_pe=max_pe, 
         min_ratio=min_ratio
+    )
+
+    return {
+        "count": len(results),
+        "data": results,
+    }
+
+
+@router.get("/consecutive_yang_lines")
+def api_consecutive_yang_lines(min_consecutive: int = 3):
+    """
+    查询周线连续阳线的千亿市值股票。
+
+    - min_consecutive: 最少连续阳线周数，默认 3 周。
+    """
+    analyzer = ConsecutiveYangLinesAnalyzer()
+    results = analyzer.get_analysis_results(min_consecutive=min_consecutive)
+
+    return {
+        "count": len(results),
+        "data": results,
+    }
+
+
+@router.get("/weekly_bottom_reversal")
+def api_weekly_bottom_reversal(
+    min_mv: float = 1000000,
+    min_drop_weeks: int = 3,
+    vol_ratio: float = 1.5
+):
+    """
+    查询周线底部放量反转的主板股票。
+
+    - min_mv: 最小总市值（万元），默认 100 亿 (1,000,000)
+    - min_drop_weeks: 反转前最少连续下跌周数，默认 3 周
+    - vol_ratio: 本周成交量相对于前几周平均成交量的放大倍数，默认 1.5 倍
+    """
+    analyzer = WeeklyBottomReversalAnalyzer()
+    results = analyzer.get_analysis_results(
+        min_mv=min_mv,
+        min_drop_weeks=min_drop_weeks,
+        vol_ratio=vol_ratio
     )
 
     return {
