@@ -388,6 +388,42 @@ class StockDataFetcher:
         except Exception as e:
             logger.error(f"获取ETF基础信息失败: {e}")
             return None
+
+    def get_fund_basic(self, market: str = 'E', status: str = 'L') -> Optional[pd.DataFrame]:
+        """
+        获取公募基金基础信息（常用于补充 ETF 缺失的数据，如 LOF 等）
+        
+        Args:
+            market: 市场 E:场内 O:场外
+            status: 存续状态 L:上市 I:发行 D:暂停 P:终止
+        """
+        try:
+            logger.info(f"正在获取市场为 {market} 的基金基础信息...")
+            # 明确指定需要的字段，避免后续处理冲突
+            fields = "ts_code,name,management,fund_type,status,issue_date,delist_date"
+            df = self.pro.fund_basic(market=market, status=status, fields=fields)
+            if df is None or df.empty:
+                return None
+            
+            # 统一字段名以兼容 etf_basic 表
+            rename_map = {
+                'name': 'extname',
+                'management': 'mgr_name',
+                'fund_type': 'etf_type',
+                'status': 'list_status',
+                'issue_date': 'list_date',
+            }
+            df = df.rename(columns=rename_map)
+            
+            # 日期处理
+            for col in ["list_date", "delist_date"]:
+                if col in df.columns:
+                    df[col] = pd.to_datetime(df[col], format="%Y%m%d", errors="coerce")
+            
+            return df
+        except Exception as e:
+            logger.error(f"获取基金基础信息失败: {e}")
+            return None
     
     def get_main_board_stocks(self, use_cache: bool = True) -> List[str]:
         """

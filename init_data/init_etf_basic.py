@@ -17,6 +17,7 @@ ETF基础信息数据初始化脚本
 
 import sys
 import os
+import pandas as pd
 from datetime import datetime
 
 # 添加父目录到Python路径，以便导入 database 和 fetcher 模块
@@ -85,22 +86,47 @@ def fetch_and_store_etf_basic(fetcher: StockDataFetcher, db: StockDatabase) -> d
         "duration": None,
     }
 
-    logger.info("📊 开始获取ETF基础信息数据...")
+    logger.info("📊 开始获取并整合ETF基础信息数据...")
 
     try:
-        # 只取在市ETF
-        df = fetcher.get_etf_basic(list_status="L")
+        # 1. 获取标准的 etf_basic 数据
+        df_etf = fetcher.get_etf_basic(list_status="L")
+        
+        # 2. 获取 fund_basic 数据作为补充 (包含 LOF 等场内基金)
+        df_fund = fetcher.get_fund_basic(market='E', status='L')
 
-        if df is None or df.empty:
-            logger.error("❌ 未获取到任何ETF基础信息数据")
+        if (df_etf is None or df_etf.empty) and (df_fund is None or df_fund.empty):
+            logger.error("❌ 未获取到任何ETF或基金基础信息数据")
             return stats
+
+        # 合并数据
+        if df_etf is not None and not df_etf.empty and df_fund is not None and not df_fund.empty:
+            # 以 ts_code 为键合并，优先保留 df_etf 的信息
+            # 找出 df_fund 中不在 df_etf 中的记录
+            missing_codes = set(df_fund['ts_code']) - set(df_etf['ts_code'])
+            df_missing = df_fund[df_fund['ts_code'].isin(missing_codes)]
+            
+            logger.info(f"🔍 从 fund_basic 发现 {len(df_missing)} 只在 etf_basic 中缺失的场内基金/ETF")
+            
+            # 确保列对齐
+            for col in df_etf.columns:
+                if col not in df_missing.columns:
+                    df_missing[col] = None
+            
+            df = pd.concat([df_etf, df_missing[df_etf.columns]], ignore_index=True)
+        else:
+            df = df_etf if df_etf is not None and not df_etf.empty else df_fund
+
+        # 交易所字段补全 (从 ts_code 后缀推断)
+        if 'exchange' in df.columns:
+            df.loc[df['exchange'].isna(), 'exchange'] = df['ts_code'].apply(lambda x: 'SH' if x.endswith('.SH') else ('SZ' if x.endswith('.SZ') else None))
 
         stats["total_etf"] = len(df)
 
         if "exchange" in df.columns:
             stats["exchange_distribution"] = df["exchange"].value_counts().to_dict()
 
-        logger.info(f"📈 成功获取 {len(df)} 只ETF基础信息")
+        logger.info(f"📈 整合后共计 {len(df)} 只场内基金/ETF基础信息")
 
         # 插入数据库
         logger.info("💾 开始插入ETF基础信息到数据库...")
