@@ -15,6 +15,7 @@ from query.strategy.query_low_pe_volume_surge import LowPEVolumeSurgeAnalyzer
 from query.strategy.query_consecutive_yang_lines import ConsecutiveYangLinesAnalyzer
 from query.strategy.query_weekly_bottom_reversal import WeeklyBottomReversalAnalyzer
 from query.strategy.query_etf_weekly_volume_surge import ETFWeeklyVolumeSurgeAnalyzer
+from query.strategy.query_smart_portfolio import SmartPortfolioAnalyzer
 
 router = APIRouter()
 
@@ -137,6 +138,18 @@ def api_etf_weekly_volume_surge(
         "count": len(results),
         "data": results,
     }
+
+
+@router.get("/smart_portfolio")
+def api_smart_portfolio(limit: int = 5):
+    """
+    智能投资组合推荐策略。
+    
+    聚合多个策略结果，自动进行行业去重，精选 3-5 只优质标的。
+    """
+    analyzer = SmartPortfolioAnalyzer()
+    results = analyzer.get_portfolio_recommendation(limit=limit)
+    return results
 
 
 @router.get("/price_volume_1y")
