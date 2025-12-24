@@ -14,6 +14,7 @@ from database import StockDatabase
 from query.strategy.query_low_pe_volume_surge import LowPEVolumeSurgeAnalyzer
 from query.strategy.query_consecutive_yang_lines import ConsecutiveYangLinesAnalyzer
 from query.strategy.query_weekly_bottom_reversal import WeeklyBottomReversalAnalyzer
+from query.strategy.query_etf_weekly_volume_surge import ETFWeeklyVolumeSurgeAnalyzer
 
 router = APIRouter()
 
@@ -87,24 +88,30 @@ def api_consecutive_yang_lines(min_consecutive: int = 3):
     }
 
 
-@router.get("/weekly_bottom_reversal")
-def api_weekly_bottom_reversal(
-    min_mv: float = 1000000,
-    min_drop_weeks: int = 3,
-    vol_ratio: float = 1.5
+    return {
+        "count": len(results),
+        "data": results,
+    }
+
+
+@router.get("/etf_weekly_volume_surge")
+def api_etf_weekly_volume_surge(
+    min_ratio: float = 1.5,
+    lookback_weeks: int = 3,
+    min_last_week_amount_yi: float = 1.0,
 ):
     """
-    查询周线底部放量反转的主板股票。
+    查询周线明显放量的 ETF。
 
-    - min_mv: 最小总市值（万元），默认 100 亿 (1,000,000)
-    - min_drop_weeks: 反转前最少连续下跌周数，默认 3 周
-    - vol_ratio: 本周成交量相对于前几周平均成交量的放大倍数，默认 1.5 倍
+    - min_ratio: 最小放量倍数，默认 1.5
+    - lookback_weeks: 回看周数，默认 3 周
+    - min_last_week_amount_yi: 最近一周成交额阈值（亿元），默认 1.0
     """
-    analyzer = WeeklyBottomReversalAnalyzer()
+    analyzer = ETFWeeklyVolumeSurgeAnalyzer()
     results = analyzer.get_analysis_results(
-        min_mv=min_mv,
-        min_drop_weeks=min_drop_weeks,
-        vol_ratio=vol_ratio
+        min_ratio=min_ratio,
+        lookback_weeks=lookback_weeks,
+        min_last_week_amount_yi=min_last_week_amount_yi,
     )
 
     return {

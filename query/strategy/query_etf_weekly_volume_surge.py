@@ -185,46 +185,66 @@ class ETFWeeklyVolumeSurgeAnalyzer:
         )
         return surge_df
 
+    def get_analysis_results(
+        self,
+        min_ratio: float = 1.5,
+        lookback_weeks: int = 3,
+        min_last_week_amount_yi: float = 1.0,
+    ) -> List[Dict]:
+        """
+        获取分析结果列表，供 API 调用。
+        """
+        try:
+            with self.db:
+                surge_df = self.find_weekly_volume_surge_etfs(
+                    min_ratio=min_ratio,
+                    lookback_weeks=lookback_weeks,
+                    min_last_week_amount_yi=min_last_week_amount_yi,
+                )
+
+            if surge_df.empty:
+                return []
+
+            # 补充ETF名称
+            etf_names = self.get_etf_names(surge_df["ts_code"].tolist())
+
+            final_rows = []
+            for _, row in surge_df.iterrows():
+                ts_code = row["ts_code"]
+                final_rows.append(
+                    {
+                        "ts_code": ts_code,
+                        "代码": ts_code,
+                        "名称": etf_names.get(ts_code, ts_code),
+                        "最近周线截止日": str(row["latest_week_end"])[:10],
+                        "最近一周成交量(手)": float(row["last_week_vol"]),
+                        "最近一周成交额(亿元)": float(row["last_week_amount"] / 100000.0),
+                        "过去3周最大周成交量(手)": float(row["max_prev_vol"]),
+                        "周放量倍数": float(row["volume_ratio"]),
+                    }
+                )
+
+            # 排序
+            final_rows.sort(
+                key=lambda x: (x["周放量倍数"], x["最近一周成交额(亿元)"]),
+                reverse=True
+            )
+            
+            return final_rows
+        except Exception as e:
+            logger.error(f"获取分析结果失败: {e}")
+            return []
+
     def run(self):
         """执行ETF周线放量查询并打印结果"""
-        with self.db:
-            surge_df = self.find_weekly_volume_surge_etfs(
-                min_ratio=1.5,
-                lookback_weeks=3,
-                min_last_week_amount_yi=1.0,
-            )
-
-        if surge_df.empty:
+        results = self.get_analysis_results()
+        
+        if not results:
             logger.warning("没有找到周线明显放量的ETF")
             return
 
-        # 补充ETF名称
-        etf_names = self.get_etf_names(surge_df["ts_code"].tolist())
-
-        final_rows = []
-        for _, row in surge_df.iterrows():
-            ts_code = row["ts_code"]
-            final_rows.append(
-                {
-                    "代码": ts_code,
-                    "名称": etf_names.get(ts_code, ts_code),
-                    "最近周线截止日": row["latest_week_end"],
-                    "最近一周成交量(手)": row["last_week_vol"],
-                    "最近一周成交额(亿元)": row["last_week_amount"] / 100000.0,
-                    "过去3周最大周成交量(手)": row["max_prev_vol"],
-                    "周放量倍数": row["volume_ratio"],
-                }
-            )
-
-        final_df = pd.DataFrame(final_rows)
-        final_df = final_df.sort_values(
-            by=["周放量倍数", "最近一周成交额(亿元)", "最近一周成交量(手)"],
-            ascending=[False, False, False],
-        )
-
         logger.info(
-            f"\n🎉 周线明显放量的ETF列表 "
-            f"(最近1周 > 过去3周最大周成交量 × 1.5 且 最近一周成交额≥1亿元): 共 {len(final_df)} 只"
+            f"\n🎉 周线明显放量的ETF列表 (最近1周 > 过去3周最大周成交量 × 1.5 且 最近一周成交额≥1亿元): 共 {len(results)} 只"
         )
         logger.info("=" * 120)
         logger.info(
@@ -234,10 +254,10 @@ class ETFWeeklyVolumeSurgeAnalyzer:
         )
         logger.info("-" * 120)
 
-        for _, r in final_df.iterrows():
+        for r in results:
             logger.info(
                 f"{r['代码']:<12} {r['名称']:<20} "
-                f"{str(r['最近周线截止日'])[:10]:<12} "
+                f"{r['最近周线截止日']:<12} "
                 f"{r['最近一周成交量(手)']:<18.0f} "
                 f"{r['最近一周成交额(亿元)']:<18.2f} "
                 f"{r['过去3周最大周成交量(手)']:<22.0f} "
