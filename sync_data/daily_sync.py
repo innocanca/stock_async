@@ -158,6 +158,59 @@ def sync_ths_data() -> bool:
         logger.error(f"❌ 同步同花顺数据失败: {e}")
         return False
 
+def sync_index_dailybasic(days_back: int = 7) -> bool:
+    """同步大盘指数每日指标 (PE, PB, turnover等)"""
+    logger.info(f"🔄 同步指数每日指标 (最近 {days_back} 天)...")
+    try:
+        fetcher = StockDataFetcher()
+        end_date = datetime.now().strftime("%Y%m%d")
+        start_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y%m%d")
+        
+        major_indexes = ['000001.SH', '000300.SH', '000905.SH', '000016.SH', '399001.SZ', '399006.SZ']
+        success_count = 0
+        with StockDatabase() as db:
+            db.create_index_dailybasic_table()
+            for code in major_indexes:
+                df = fetcher.get_index_dailybasic(ts_code=code, start_date=start_date, end_date=end_date)
+                if df is not None and not df.empty:
+                    if db.insert_index_dailybasic(df):
+                        success_count += 1
+        return success_count > 0
+    except Exception as e:
+        logger.error(f"❌ 同步指数每日指标失败: {e}")
+        return False
+
+def sync_ths_daily(days_back: int = 3) -> bool:
+    """同步同花顺概念/行业指数日线行情"""
+    logger.info(f"🔄 同步同花顺指数日线行情 (最近 {days_back} 天)...")
+    try:
+        fetcher = StockDataFetcher()
+        end_date = datetime.now().strftime("%Y%m%d")
+        start_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y%m%d")
+        
+        with StockDatabase() as db:
+            db.create_ths_daily_table()
+            # 获取已有的指数列表
+            cursor = db.connection.cursor()
+            cursor.execute("SELECT ts_code FROM ths_index WHERE type IN ('N', 'I')")
+            ths_codes = [r[0] for r in cursor.fetchall()]
+            
+            if not ths_codes:
+                return False
+                
+            success_count = 0
+            for code in ths_codes:
+                df = fetcher.get_ths_daily(ts_code=code, start_date=start_date, end_date=end_date)
+                if df is not None and not df.empty:
+                    if db.insert_ths_daily(df):
+                        success_count += 1
+                import time
+                time.sleep(0.2)
+        return success_count > 0
+    except Exception as e:
+        logger.error(f"❌ 同步同花顺指数日线行情失败: {e}")
+        return False
+
 def sync_financial_data(years_back: int = 1) -> bool:
     """同步财务数据 (利润表, 现金流量表, 分红)"""
     logger.info(f"🔄 同步财务数据 (最近 {years_back} 年)...")

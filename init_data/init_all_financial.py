@@ -68,6 +68,13 @@ def create_all_financial_tables(db: StockDatabase) -> bool:
         else:
             logger.error("❌ 创建现金流量表数据表失败")
             
+        # 创建资产负债表数据表
+        if db.create_balancesheet_table():
+            tables_created += 1
+            logger.info("✅ 资产负债表数据表创建成功")
+        else:
+            logger.error("❌ 创建资产负债表数据表失败")
+            
         # 创建分红送股数据表
         if db.create_dividend_table():
             tables_created += 1
@@ -75,11 +82,11 @@ def create_all_financial_tables(db: StockDatabase) -> bool:
         else:
             logger.error("❌ 创建分红送股数据表失败")
         
-        if tables_created == 3:
+        if tables_created == 4:
             logger.info("🎉 所有财务数据表创建成功")
             return True
         else:
-            logger.error(f"❌ 只成功创建了 {tables_created}/3 个表")
+            logger.error(f"❌ 只成功创建了 {tables_created}/4 个表")
             return False
         
     except Exception as e:
@@ -159,6 +166,7 @@ def initialize_financial_data(fetcher: StockDataFetcher, db: StockDatabase,
     overall_stats = {
         'income': {'success': False, 'records': 0, 'stocks': 0},
         'cashflow': {'success': False, 'records': 0, 'stocks': 0},
+        'balancesheet': {'success': False, 'records': 0, 'stocks': 0},
         'dividend': {'success': False, 'records': 0, 'stocks': 0},
         'total_duration': None,
         'start_time': datetime.now()
@@ -213,9 +221,32 @@ def initialize_financial_data(fetcher: StockDataFetcher, db: StockDatabase,
                 logger.error("❌ 现金流量表数据插入失败")
         else:
             logger.error("❌ 未获取到现金流量表数据")
+
+        # 3. 初始化资产负债表数据
+        logger.info("\n🏛️ 第3步：初始化资产负债表数据...")
+        logger.info("-" * 50)
         
-        # 3. 初始化分红送股数据
-        logger.info("\n🎁 第3步：初始化分红送股数据...")
+        balancesheet_df = fetcher.get_multiple_stocks_financial_data(
+            stock_codes=stock_codes,
+            data_type='balancesheet',
+            years_back=3,
+            batch_size=20,
+            delay=0.5
+        )
+        
+        if balancesheet_df is not None and not balancesheet_df.empty:
+            if db.insert_balancesheet_data(balancesheet_df):
+                overall_stats['balancesheet']['success'] = True
+                overall_stats['balancesheet']['records'] = len(balancesheet_df)
+                overall_stats['balancesheet']['stocks'] = balancesheet_df['ts_code'].nunique()
+                logger.info(f"✅ 资产负债表数据初始化成功: {overall_stats['balancesheet']['stocks']}只股票, {overall_stats['balancesheet']['records']}条记录")
+            else:
+                logger.error("❌ 资产负债表数据插入失败")
+        else:
+            logger.error("❌ 未获取到资产负债表数据")
+        
+        # 4. 初始化分红送股数据
+        logger.info("\n🎁 第4步：初始化分红送股数据...")
         logger.info("-" * 50)
         
         dividend_df = fetcher.get_multiple_stocks_financial_data(
@@ -261,7 +292,7 @@ def display_final_summary(stats: dict):
                        if data_type != 'total_duration' and data_type != 'start_time' 
                        and info.get('success', False))
     
-    logger.info(f"📊 初始化结果: {success_count}/3 个数据类型成功")
+    logger.info(f"📊 初始化结果: {success_count}/4 个数据类型成功")
     logger.info("")
     
     # 详细统计
@@ -272,6 +303,7 @@ def display_final_summary(stats: dict):
         data_type_name = {
             'income': '利润表',
             'cashflow': '现金流量表',
+            'balancesheet': '资产负债表',
             'dividend': '分红送股'
         }.get(data_type, data_type)
         
@@ -286,15 +318,18 @@ def display_final_summary(stats: dict):
             logger.info("   📈 利润表数据可用于盈利能力分析")
         if stats['cashflow']['success']:
             logger.info("   💰 现金流数据可用于资金状况分析")
+        if stats.get('balancesheet', {}).get('success', False):
+            logger.info("   🏛️ 资产负债表数据可用于资产质量分析")
         if stats['dividend']['success']:
             logger.info("   🎁 分红数据可用于股息率和分红策略分析")
         
         logger.info("\n📝 数据查询示例：")
         logger.info("   - 查询利润表: SELECT * FROM income_data WHERE ts_code='000001.SZ'")
         logger.info("   - 查询现金流: SELECT * FROM cashflow_data WHERE ts_code='000001.SZ'")
+        logger.info("   - 查询资产负债表: SELECT * FROM balancesheet_data WHERE ts_code='000001.SZ'")
         logger.info("   - 查询分红: SELECT * FROM dividend_data WHERE ts_code='000001.SZ'")
     
-    if success_count < 3:
+    if success_count < 4:
         logger.error("\n⚠️  部分数据初始化失败，可能原因：")
         logger.error("   1. Tushare API权限不足")
         logger.error("   2. 网络连接问题")
@@ -309,7 +344,8 @@ def main():
     logger.info("📋 将初始化以下数据：")
     logger.info("   1. 📈 利润表数据 (最近3年)")
     logger.info("   2. 💰 现金流量表数据 (最近3年)")
-    logger.info("   3. 🎁 分红送股数据 (最近5年)")
+    logger.info("   3. 🏛️ 资产负债表数据 (最近3年)")
+    logger.info("   4. 🎁 分红送股数据 (最近5年)")
     logger.info("=" * 60)
     
     start_time = datetime.now()

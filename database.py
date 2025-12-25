@@ -1960,6 +1960,184 @@ class StockDatabase:
             self.connection.rollback()
             return False
     
+    def insert_balancesheet_data(self, df: pd.DataFrame):
+        """
+        批量插入资产负债表数据
+        
+        Args:
+            df: 包含资产负债表数据的DataFrame
+            
+        Returns:
+            bool: 插入是否成功
+        """
+        if not self.connection:
+            logger.error("请先连接数据库")
+            return False
+        
+        if df.empty:
+            logger.warning("资产负债表数据为空，跳过插入")
+            return True
+            
+        try:
+            with self.connection.cursor() as cursor:
+                # 资产负债表字段较多，这里选取核心常用字段
+                insert_sql = """
+                INSERT INTO balancesheet_data 
+                (ts_code, ann_date, f_ann_date, end_date, report_type, comp_type,
+                 total_assets, total_liab, total_hld_eqy_exc_min_int, total_hld_eqy_inc_min_int,
+                 cap_rese, undist_profit, money_cap, trad_asset, notes_receiv, accounts_receiv,
+                 oth_receiv, inventories, lt_eqt_invest, fix_assets, cip, intan_assets,
+                 deferred_tax_assets, notes_payable, accounts_payable, adv_receipts,
+                 st_borr, lt_borr, update_flag)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                ann_date=VALUES(ann_date), f_ann_date=VALUES(f_ann_date),
+                total_assets=VALUES(total_assets), total_liab=VALUES(total_liab),
+                total_hld_eqy_exc_min_int=VALUES(total_hld_eqy_exc_min_int),
+                total_hld_eqy_inc_min_int=VALUES(total_hld_eqy_inc_min_int),
+                undist_profit=VALUES(undist_profit), money_cap=VALUES(money_cap),
+                update_flag=VALUES(update_flag), updated_at=CURRENT_TIMESTAMP
+                """
+                
+                # 准备数据
+                data_list = []
+                for _, row in df.iterrows():
+                    data_list.append((
+                        row.get('ts_code'),
+                        row.get('ann_date'),
+                        row.get('f_ann_date'),
+                        row.get('end_date'),
+                        row.get('report_type'),
+                        row.get('comp_type'),
+                        row.get('total_assets') if pd.notna(row.get('total_assets')) else None,
+                        row.get('total_liab') if pd.notna(row.get('total_liab')) else None,
+                        row.get('total_hld_eqy_exc_min_int') if pd.notna(row.get('total_hld_eqy_exc_min_int')) else None,
+                        row.get('total_hld_eqy_inc_min_int') if pd.notna(row.get('total_hld_eqy_inc_min_int')) else None,
+                        row.get('cap_rese') if pd.notna(row.get('cap_rese')) else None,
+                        row.get('undist_profit') if pd.notna(row.get('undist_profit')) else None,
+                        row.get('money_cap') if pd.notna(row.get('money_cap')) else None,
+                        row.get('trad_asset') if pd.notna(row.get('trad_asset')) else None,
+                        row.get('notes_receiv') if pd.notna(row.get('notes_receiv')) else None,
+                        row.get('accounts_receiv') if pd.notna(row.get('accounts_receiv')) else None,
+                        row.get('oth_receiv') if pd.notna(row.get('oth_receiv')) else None,
+                        row.get('inventories') if pd.notna(row.get('inventories')) else None,
+                        row.get('lt_eqt_invest') if pd.notna(row.get('lt_eqt_invest')) else None,
+                        row.get('fix_assets') if pd.notna(row.get('fix_assets')) else None,
+                        row.get('cip') if pd.notna(row.get('cip')) else None,
+                        row.get('intan_assets') if pd.notna(row.get('intan_assets')) else None,
+                        row.get('deferred_tax_assets') if pd.notna(row.get('deferred_tax_assets')) else None,
+                        row.get('notes_payable') if pd.notna(row.get('notes_payable')) else None,
+                        row.get('accounts_payable') if pd.notna(row.get('accounts_payable')) else None,
+                        row.get('adv_receipts') if pd.notna(row.get('adv_receipts')) else None,
+                        row.get('st_borr') if pd.notna(row.get('st_borr')) else None,
+                        row.get('lt_borr') if pd.notna(row.get('lt_borr')) else None,
+                        row.get('update_flag')
+                    ))
+                
+                # 批量执行插入
+                cursor.executemany(insert_sql, data_list)
+                self.connection.commit()
+                
+                logger.info(f"成功插入/更新 {len(data_list)} 条资产负债表记录")
+                return True
+                
+        except Exception as e:
+            logger.error(f"插入资产负债表数据失败: {e}")
+            self.connection.rollback()
+            return False
+    
+    def insert_index_dailybasic(self, df: pd.DataFrame):
+        """批量插入指数每日指标数据"""
+        if not self.connection:
+            logger.error("请先连接数据库")
+            return False
+        if df.empty:
+            return True
+        try:
+            with self.connection.cursor() as cursor:
+                insert_sql = """
+                INSERT INTO index_dailybasic 
+                (ts_code, trade_date, total_mv, float_mv, total_share, float_share, 
+                 free_share, turnover_rate, turnover_rate_f, pe, pe_ttm, pb)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                total_mv=VALUES(total_mv), float_mv=VALUES(float_mv),
+                total_share=VALUES(total_share), float_share=VALUES(float_share),
+                free_share=VALUES(free_share), turnover_rate=VALUES(turnover_rate),
+                turnover_rate_f=VALUES(turnover_rate_f), pe=VALUES(pe),
+                pe_ttm=VALUES(pe_ttm), pb=VALUES(pb), updated_at=CURRENT_TIMESTAMP
+                """
+                data_list = []
+                for _, row in df.iterrows():
+                    data_list.append((
+                        row.get('ts_code'),
+                        row.get('trade_date'),
+                        row.get('total_mv'),
+                        row.get('float_mv'),
+                        row.get('total_share'),
+                        row.get('float_share'),
+                        row.get('free_share'),
+                        row.get('turnover_rate'),
+                        row.get('turnover_rate_f'),
+                        row.get('pe'),
+                        row.get('pe_ttm'),
+                        row.get('pb')
+                    ))
+                cursor.executemany(insert_sql, data_list)
+                self.connection.commit()
+                logger.info(f"成功插入/更新 {len(data_list)} 条指数每日指标记录")
+                return True
+        except Exception as e:
+            logger.error(f"插入指数每日指标数据失败: {e}")
+            self.connection.rollback()
+            return False
+
+    def insert_ths_daily(self, df: pd.DataFrame):
+        """批量插入同花顺指数行情数据"""
+        if not self.connection:
+            logger.error("请先连接数据库")
+            return False
+        if df.empty:
+            return True
+        try:
+            with self.connection.cursor() as cursor:
+                insert_sql = """
+                INSERT INTO ths_daily 
+                (ts_code, trade_date, open, high, low, close, pre_close, avg_price, 
+                 `change`, pct_change, vol, turnover_rate)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                open=VALUES(open), high=VALUES(high), low=VALUES(low),
+                close=VALUES(close), pre_close=VALUES(pre_close),
+                avg_price=VALUES(avg_price), `change`=VALUES(`change`),
+                pct_change=VALUES(pct_change), vol=VALUES(vol),
+                turnover_rate=VALUES(turnover_rate), updated_at=CURRENT_TIMESTAMP
+                """
+                data_list = []
+                for _, row in df.iterrows():
+                    data_list.append((
+                        row.get('ts_code'),
+                        row.get('trade_date'),
+                        row.get('open'),
+                        row.get('high'),
+                        row.get('low'),
+                        row.get('close'),
+                        row.get('pre_close'),
+                        row.get('avg_price'),
+                        row.get('change'),
+                        row.get('pct_change'),
+                        row.get('vol'),
+                        row.get('turnover_rate')
+                    ))
+                cursor.executemany(insert_sql, data_list)
+                self.connection.commit()
+                logger.info(f"成功插入/更新 {len(data_list)} 条同花顺指数行情记录")
+                return True
+        except Exception as e:
+            logger.error(f"插入同花顺指数行情数据失败: {e}")
+            self.connection.rollback()
+            return False
+
     def query_index_basic(self, ts_code: str = None, market: str = None, 
                          publisher: str = None, category: str = None,
                          limit: int = None) -> Optional[pd.DataFrame]:
@@ -2303,6 +2481,138 @@ class StockDatabase:
             logger.error(f"创建现金流量表数据表失败: {e}")
             return False
     
+    def create_balancesheet_table(self):
+        """创建资产负债表数据表"""
+        if not self.connection:
+            logger.error("请先连接数据库")
+            return False
+            
+        try:
+            with self.connection.cursor() as cursor:
+                create_table_sql = """
+                CREATE TABLE IF NOT EXISTS balancesheet_data (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    ts_code VARCHAR(20) NOT NULL COMMENT '股票代码',
+                    ann_date DATE COMMENT '公告日期',
+                    f_ann_date DATE COMMENT '实际公告日期',
+                    end_date DATE NOT NULL COMMENT '报告期',
+                    report_type TINYINT COMMENT '报表类型',
+                    comp_type TINYINT COMMENT '公司类型',
+                    total_assets DECIMAL(20,2) COMMENT '资产总计',
+                    total_liab DECIMAL(20,2) COMMENT '负债合计',
+                    total_hld_eqy_exc_min_int DECIMAL(20,2) COMMENT '股东权益合计(不含少数股东权益)',
+                    total_hld_eqy_inc_min_int DECIMAL(20,2) COMMENT '股东权益合计(含少数股东权益)',
+                    cap_rese DECIMAL(20,2) COMMENT '资本公积',
+                    undist_profit DECIMAL(20,2) COMMENT '未分配利润',
+                    money_cap DECIMAL(20,2) COMMENT '货币资金',
+                    trad_asset DECIMAL(20,2) COMMENT '交易性金融资产',
+                    notes_receiv DECIMAL(20,2) COMMENT '应收票据',
+                    accounts_receiv DECIMAL(20,2) COMMENT '应收账款',
+                    oth_receiv DECIMAL(20,2) COMMENT '其他应收款',
+                    inventories DECIMAL(20,2) COMMENT '存货',
+                    lt_eqt_invest DECIMAL(20,2) COMMENT '长期股权投资',
+                    fix_assets DECIMAL(20,2) COMMENT '固定资产',
+                    cip DECIMAL(20,2) COMMENT '在建工程',
+                    intan_assets DECIMAL(20,2) COMMENT '无形资产',
+                    deferred_tax_assets DECIMAL(20,2) COMMENT '递延所得税资产',
+                    notes_payable DECIMAL(20,2) COMMENT '应付票据',
+                    accounts_payable DECIMAL(20,2) COMMENT '应付账款',
+                    adv_receipts DECIMAL(20,2) COMMENT '预收款项',
+                    st_borr DECIMAL(20,2) COMMENT '短期借款',
+                    lt_borr DECIMAL(20,2) COMMENT '长期借款',
+                    update_flag VARCHAR(10) COMMENT '更新标识',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+                    UNIQUE KEY unique_stock_period (ts_code, end_date, report_type),
+                    INDEX idx_ts_code (ts_code),
+                    INDEX idx_end_date (end_date),
+                    INDEX idx_ann_date (ann_date)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='股票资产负债表数据表';
+                """
+                cursor.execute(create_table_sql)
+                self.connection.commit()
+                logger.info("资产负债表数据表创建成功")
+                return True
+        except Exception as e:
+            logger.error(f"创建资产负债表数据表失败: {e}")
+            return False
+    
+    def create_index_dailybasic_table(self):
+        """创建指数每日指标数据表"""
+        if not self.connection:
+            logger.error("请先连接数据库")
+            return False
+            
+        try:
+            with self.connection.cursor() as cursor:
+                create_table_sql = """
+                CREATE TABLE IF NOT EXISTS index_dailybasic (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    ts_code VARCHAR(20) NOT NULL COMMENT 'TS代码',
+                    trade_date DATE NOT NULL COMMENT '交易日期',
+                    total_mv DECIMAL(20,4) COMMENT '当日总市值（元）',
+                    float_mv DECIMAL(20,4) COMMENT '当日流通市值（元）',
+                    total_share DECIMAL(20,4) COMMENT '当日总股本（股）',
+                    float_share DECIMAL(20,4) COMMENT '当日流通股本（股）',
+                    free_share DECIMAL(20,4) COMMENT '当日自由流通股本（股）',
+                    turnover_rate DECIMAL(10,4) COMMENT '换手率',
+                    turnover_rate_f DECIMAL(10,4) COMMENT '换手率(基于自由流通股本)',
+                    pe DECIMAL(10,4) COMMENT '市盈率',
+                    pe_ttm DECIMAL(10,4) COMMENT '市盈率TTM',
+                    pb DECIMAL(10,4) COMMENT '市净率',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    UNIQUE KEY unique_index_date (ts_code, trade_date),
+                    INDEX idx_ts_code (ts_code),
+                    INDEX idx_trade_date (trade_date)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='大盘指数每日指标表';
+                """
+                cursor.execute(create_table_sql)
+                self.connection.commit()
+                logger.info("指数每日指标数据表创建成功")
+                return True
+        except Exception as e:
+            logger.error(f"创建指数每日指标数据表失败: {e}")
+            return False
+
+    def create_ths_daily_table(self):
+        """创建同花顺指数行情数据表"""
+        if not self.connection:
+            logger.error("请先连接数据库")
+            return False
+            
+        try:
+            with self.connection.cursor() as cursor:
+                create_table_sql = """
+                CREATE TABLE IF NOT EXISTS ths_daily (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    ts_code VARCHAR(20) NOT NULL COMMENT 'TS代码',
+                    trade_date DATE NOT NULL COMMENT '交易日期',
+                    open DECIMAL(10,4) COMMENT '开盘价',
+                    high DECIMAL(10,4) COMMENT '最高价',
+                    low DECIMAL(10,4) COMMENT '最低价',
+                    close DECIMAL(10,4) COMMENT '收盘价',
+                    pre_close DECIMAL(10,4) COMMENT '昨收价',
+                    avg_price DECIMAL(10,4) COMMENT '平均价',
+                    `change` DECIMAL(10,4) COMMENT '涨跌额',
+                    pct_change DECIMAL(10,4) COMMENT '涨跌幅',
+                    vol DECIMAL(20,4) COMMENT '成交量',
+                    turnover_rate DECIMAL(10,4) COMMENT '换手率',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    UNIQUE KEY unique_index_date (ts_code, trade_date),
+                    INDEX idx_ts_code (ts_code),
+                    INDEX idx_trade_date (trade_date)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='同花顺概念和行业指数行情表';
+                """
+                cursor.execute(create_table_sql)
+                self.connection.commit()
+                logger.info("同花顺指数行情数据表创建成功")
+                return True
+        except Exception as e:
+            logger.error(f"创建同花顺指数行情数据表失败: {e}")
+            return False
+
     def create_dividend_table(self):
         """创建分红送股数据表"""
         if not self.connection:

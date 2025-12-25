@@ -20,6 +20,8 @@ from sync_data.daily_sync import (
     sync_etf_data,
     sync_ths_data,
     sync_financial_data,
+    sync_index_dailybasic,
+    sync_ths_daily,
     logger
 )
 
@@ -33,6 +35,8 @@ def main():
     parser.add_argument('--etf', action='store_true', help='同步ETF数据')
     parser.add_argument('--ths', action='store_true', help='同步同花顺数据')
     parser.add_argument('--financial', action='store_true', help='同步财务数据')
+    parser.add_argument('--index-basic', action='store_true', help='同步指数每日指标')
+    parser.add_argument('--ths-daily', action='store_true', help='同步同花顺指数行情')
     parser.add_argument('--days', type=int, default=5, help='日线行情回溯天数 (默认5天)')
     parser.add_argument('--years', type=int, default=1, help='财务数据回溯年数 (默认1年)')
 
@@ -65,6 +69,12 @@ def main():
         
     if args.all or args.financial:
         sync_financial_data(years_back=args.years)
+
+    if args.all or args.index_basic:
+        sync_index_dailybasic(days_back=args.days)
+        
+    if args.all or args.ths_daily:
+        sync_ths_daily(days_back=args.days)
 
     logger.info("✅ 所有同步任务执行完毕")
 

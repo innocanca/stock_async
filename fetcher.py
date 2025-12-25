@@ -2302,6 +2302,132 @@ class StockDataFetcher:
             logger.error(f"获取分红送股数据失败: {e}")
             return None
     
+    def get_balancesheet_data(self, ts_code: str = None, period: str = None,
+                              start_date: str = None, end_date: str = None) -> Optional[pd.DataFrame]:
+        """
+        获取资产负债表数据
+        
+        Args:
+            ts_code: 股票代码（如：000001.SZ）
+            period: 报告期（如：20231231）
+            start_date: 开始日期（YYYYMMDD格式）
+            end_date: 结束日期（YYYYMMDD格式）
+            
+        Returns:
+            pd.DataFrame: 资产负债表数据
+        """
+        try:
+            logger.info(f"正在获取资产负债表数据...")
+            
+            # 构建请求参数
+            params = {}
+            if ts_code:
+                params['ts_code'] = ts_code
+            if period:
+                params['period'] = period
+            if start_date:
+                params['start_date'] = start_date
+            if end_date:
+                params['end_date'] = end_date
+            
+            # 获取资产负债表数据
+            df = self.pro.balancesheet(**params)
+            
+            if df.empty:
+                logger.warning("未获取到资产负债表数据")
+                return None
+            
+            # 数据预处理
+            date_columns = ['ann_date', 'f_ann_date', 'end_date']
+            for col in date_columns:
+                if col in df.columns:
+                    df[col] = pd.to_datetime(df[col], format='%Y%m%d', errors='coerce')
+            
+            logger.info(f"成功获取 {len(df)} 条资产负债表数据")
+            return df
+            
+        except Exception as e:
+            logger.error(f"获取资产负债表数据失败: {e}")
+            return None
+
+    def get_index_dailybasic(self, ts_code: str = None, trade_date: str = None,
+                            start_date: str = None, end_date: str = None) -> Optional[pd.DataFrame]:
+        """
+        获取大盘指数每日指标 (index_dailybasic)
+        对应 Tushare 文档: https://tushare.pro/document/2?doc_id=128
+        
+        Args:
+            ts_code: 指数代码
+            trade_date: 交易日期
+            start_date: 开始日期
+            end_date: 结束日期
+            
+        Returns:
+            pd.DataFrame: 指数每日指标数据
+        """
+        try:
+            params = {}
+            if ts_code:
+                params['ts_code'] = ts_code
+            if trade_date:
+                params['trade_date'] = trade_date
+            if start_date:
+                params['start_date'] = start_date
+            if end_date:
+                params['end_date'] = end_date
+                
+            df = self.pro.index_dailybasic(**params)
+            
+            if df is None or df.empty:
+                return None
+                
+            if 'trade_date' in df.columns:
+                df['trade_date'] = pd.to_datetime(df['trade_date'], format='%Y%m%d')
+                
+            return df
+        except Exception as e:
+            logger.error(f"获取指数每日指标失败: {e}")
+            return None
+
+    def get_ths_daily(self, ts_code: str = None, trade_date: str = None,
+                      start_date: str = None, end_date: str = None) -> Optional[pd.DataFrame]:
+        """
+        获取同花顺概念和行业指数行情 (ths_daily)
+        对应 Tushare 文档: https://tushare.pro/document/2?doc_id=327
+        
+        Args:
+            ts_code: 指数代码
+            trade_date: 交易日期
+            start_date: 开始日期
+            end_date: 结束日期
+            
+        Returns:
+            pd.DataFrame: 同花顺指数行情数据
+        """
+        try:
+            params = {}
+            if ts_code:
+                params['ts_code'] = ts_code
+            if trade_date:
+                params['trade_date'] = trade_date
+            if start_date:
+                params['start_date'] = start_date
+            if end_date:
+                params['end_date'] = end_date
+                
+            df = self.pro.ths_daily(**params)
+            
+            if df is None or df.empty:
+                return None
+                
+            if 'trade_date' in df.columns:
+                df['trade_date'] = pd.to_datetime(df['trade_date'], format='%Y%m%d')
+                
+            return df
+        except Exception as e:
+            logger.error(f"获取同花顺指数行情失败: {e}")
+            return None
+
     def get_multiple_stocks_financial_data(self, stock_codes: List[str], 
                                           data_type: str = 'income',
                                           years_back: int = 3,
@@ -2312,7 +2438,7 @@ class StockDataFetcher:
         
         Args:
             stock_codes: 股票代码列表
-            data_type: 数据类型 ('income', 'cashflow', 'dividend')
+            data_type: 数据类型 ('income', 'cashflow', 'balancesheet', 'dividend')
             years_back: 回溯年数
             batch_size: 批次大小
             delay: API调用延迟
@@ -2340,6 +2466,8 @@ class StockDataFetcher:
                     df = self.get_income_data(ts_code=ts_code)
                 elif data_type == 'cashflow':
                     df = self.get_cashflow_data(ts_code=ts_code)
+                elif data_type == 'balancesheet':
+                    df = self.get_balancesheet_data(ts_code=ts_code)
                 elif data_type == 'dividend':
                     df = self.get_dividend_data(ts_code=ts_code)
                 else:

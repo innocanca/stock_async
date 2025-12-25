@@ -206,3 +206,74 @@ def api_price_volume_1y(ts_code: str):
     }
 
 
+@router.get("/top_active_stocks")
+def api_top_active_stocks(limit: int = 20, sort_by: str = "amount"):
+    """
+    获取市场最活跃（成交额或成交量最大）的前 N 只股票。
+
+    - limit: 返回数量，默认 20
+    - sort_by: 排序字段，可选 'amount' (成交额，默认) 或 'vol' (成交量)
+    """
+    if sort_by not in ["amount", "vol"]:
+        sort_by = "amount"
+
+    db = StockDatabase()
+    if not db.connect():
+        return JSONResponse(
+            content={"error": "database_connect_failed"},
+            status_code=500,
+        )
+
+    try:
+        with db.connection.cursor() as cursor:
+            # 1. 获取最新交易日
+            cursor.execute("SELECT MAX(trade_date) FROM daily_data")
+            latest_date = cursor.fetchone()[0]
+            if not latest_date:
+                return {"count": 0, "data": [], "message": "No data found"}
+
+            # 2. 查询成交额最大的前 N 只股票，并关联 stock_basic 获取名称
+            sql = f"""
+            SELECT 
+                d.ts_code, 
+                b.name, 
+                d.trade_date, 
+                d.close as '现价', 
+                d.change_pct as '涨跌幅', 
+                d.vol as '成交量(手)', 
+                d.amount / 10000 as '成交额(亿元)'
+            FROM daily_data d
+            LEFT JOIN stock_basic b ON d.ts_code = b.ts_code
+            WHERE d.trade_date = %s
+            ORDER BY d.{sort_by} DESC
+            LIMIT %s
+            """
+            cursor.execute(sql, (latest_date, limit))
+            
+            # 获取结果并转换格式
+            columns = [col[0] for col in cursor.description]
+            records = []
+            for row in cursor.fetchall():
+                record = dict(zip(columns, row))
+                # 处理日期和数值类型
+                if record["trade_date"]:
+                    record["trade_date"] = record["trade_date"].strftime("%Y-%m-%d")
+                for k, v in record.items():
+                    if hasattr(v, "to_eng_string"):  # 处理 Decimal
+                        record[k] = float(v)
+                records.append(record)
+
+            return {
+                "latest_trade_date": latest_date.strftime("%Y-%m-%d"),
+                "count": len(records),
+                "data": records,
+            }
+    except Exception as e:
+        return JSONResponse(
+            content={"error": str(e)},
+            status_code=500,
+        )
+    finally:
+        db.disconnect()
+
+
