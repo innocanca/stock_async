@@ -108,6 +108,10 @@ class DailyBottomVolumeSurgeAnalyzer:
                 vol_ratio = latest_record['vol'] / avg_vol_20
                 if vol_ratio < vol_ratio_threshold:
                     continue
+
+                # 策略条件 4: 当天必须是上涨的 (涨跌幅 > 0)
+                if latest_record['change_pct'] <= 0:
+                    continue
                 
                 # 符合所有条件
                 stock_info = main_board_df[main_board_df['ts_code'] == ts_code].iloc[0]
