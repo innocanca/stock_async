@@ -74,23 +74,25 @@ class DailyBottomVolumeSurgeAnalyzer:
                 
                 # 获取该股最近300天的日线数据（为了计算MA250和价格位置）
                 stock_data = self.get_daily_data_for_analysis(ts_code, latest_date, days=300)
-                if stock_data is None or len(stock_data) < 250:
+                if stock_data is None or len(stock_data) < 120:  # 至少需要半年数据
                     continue
                 
                 latest_record = stock_data.iloc[-1]
                 
-                # 策略条件 1: 250日线下方
-                ma250 = stock_data['close'].tail(250).mean()
+                # 策略条件 1: 250日线下方 (如果没有250日，则使用所有可用数据计算均线)
+                data_len = len(stock_data)
+                ma_days = min(data_len, 250)
+                ma250 = stock_data['close'].tail(ma_days).mean()
                 if latest_record['close'] >= ma250:
                     continue
                 
-                # 策略条件 2: 底部 (价格位置在过去250天的低位)
-                recent_250 = stock_data.tail(250)
-                high_250 = recent_250['high'].max()
-                low_250 = recent_250['low'].min()
+                # 策略条件 2: 底部 (价格位置在过去 ma_days 天的低位)
+                recent_data = stock_data.tail(ma_days)
+                high_period = recent_data['high'].max()
+                low_period = recent_data['low'].min()
                 
-                if high_250 > low_250:
-                    price_pos = (latest_record['close'] - low_250) / (high_250 - low_250)
+                if high_period > low_period:
+                    price_pos = (latest_record['close'] - low_period) / (high_period - low_period)
                 else:
                     price_pos = 0.5
                 
@@ -114,7 +116,7 @@ class DailyBottomVolumeSurgeAnalyzer:
                     'name': stock_info['name'],
                     'industry': stock_info['industry'],
                     'close': float(latest_record['close']),
-                    'pct_chg': float(latest_record['pct_chg']),
+                    'pct_chg': float(latest_record['change_pct']),
                     'vol_ratio': float(vol_ratio),
                     'price_pos': float(price_pos),
                     'ma250': float(ma250),
@@ -123,6 +125,7 @@ class DailyBottomVolumeSurgeAnalyzer:
                 })
             
             logger.info(f"分析完成，找到 {len(results)} 只符合条件的股票")
+            # logger.info(f"统计信息: {stats}")
             return sorted(results, key=lambda x: x['vol_ratio'], reverse=True)
             
         except Exception as e:
@@ -165,7 +168,7 @@ class DailyBottomVolumeSurgeAnalyzer:
         """获取单只股票的日线历史数据"""
         try:
             sql = """
-            SELECT trade_date, close, high, low, vol, pct_chg
+            SELECT trade_date, close, high, low, vol, change_pct
             FROM daily_data
             WHERE ts_code = %s AND trade_date <= %s
             ORDER BY trade_date DESC
@@ -176,7 +179,7 @@ class DailyBottomVolumeSurgeAnalyzer:
                 return None
             return df.sort_values('trade_date')
         except Exception as e:
-            # logger.warning(f"获取 {ts_code} 日线数据失败: {e}")
+            logger.error(f"获取 {ts_code} 日线数据失败: {e}")
             return None
 
 if __name__ == "__main__":
