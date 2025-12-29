@@ -79,6 +79,23 @@
     - `max_pe` (float, 可选): 最大市盈率 (TTM)，默认不限制。
     - `min_ratio` (float, 可选): 周线放量倍数阈值，默认 `1.3`。
 - **返回字段**: `ts_code`, `名称`, `市值(亿)`, `PE(TTM)`, `现价`, `周放量倍数`, `是否刚启动`。
+- **返回示例**:
+```json
+{
+  "count": 1,
+  "data": [
+    {
+      "ts_code": "600036.SH",
+      "名称": "招商银行",
+      "市值(亿)": 8500.5,
+      "PE(TTM)": 5.8,
+      "现价": 32.5,
+      "周放量倍数": 1.45,
+      "是否刚启动": true
+    }
+  ]
+}
+```
 
 ---
 
@@ -91,6 +108,22 @@
     - `min_mv` (float, 可选): 最小总市值（万元），默认 `10000000` (1000亿)。
     - `max_pe` (float, 可选): 最大市盈率 (TTM)，默认 `30.0`。
 - **返回字段**: `ts_code`, `name`, `total_mv_10k`, `pe_ttm`, `current_close`, `avg_close_1y`。
+- **返回示例**:
+```json
+{
+  "count": 1,
+  "data": [
+    {
+      "ts_code": "601398.SH",
+      "name": "工商银行",
+      "total_mv_10k": 18000000,
+      "pe_ttm": 4.5,
+      "current_close": 5.2,
+      "avg_close_1y": 5.8
+    }
+  ]
+}
+```
 
 ---
 
@@ -147,6 +180,38 @@
     ...
   ],
   "diversification": "覆盖了 3 个不同行业"
+}
+```
+
+---
+
+### 2.7 日线底部放巨量策略
+查询日线级别放巨量、处于 250 日均线下方、且处于近一年价格低位的主板股票。
+
+- **接口路径**: `/daily_bottom_volume_surge`
+- **HTTP方法**: `GET`
+- **请求参数**:
+    - `vol_ratio` (float, 可选): 成交量放大倍数阈值，默认 `3.0`。
+    - `price_pos` (float, 可选): 价格位置阈值 (0-1)，默认 `0.2` (处于过去 250 天波动的低位 20%)。
+- **返回字段**: `ts_code`, `name`, `industry`, `close`, `pct_chg`, `vol_ratio`, `price_pos`, `dist_to_ma250` 等。
+- **返回示例**:
+```json
+{
+  "count": 1,
+  "data": [
+    {
+      "ts_code": "600000.SH",
+      "name": "浦发银行",
+      "industry": "银行",
+      "close": 7.5,
+      "pct_chg": 1.2,
+      "vol_ratio": 3.5,
+      "price_pos": 0.15,
+      "ma250": 8.2,
+      "dist_to_ma250": -8.54,
+      "trade_date": "2025-12-29"
+    }
+  ]
 }
 ```
 

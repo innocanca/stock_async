@@ -16,6 +16,7 @@ from query.strategy.query_consecutive_yang_lines import ConsecutiveYangLinesAnal
 from query.strategy.query_weekly_bottom_reversal import WeeklyBottomReversalAnalyzer
 from query.strategy.query_etf_weekly_volume_surge import ETFWeeklyVolumeSurgeAnalyzer
 from query.strategy.query_smart_portfolio import SmartPortfolioAnalyzer
+from query.strategy.query_daily_bottom_volume_surge import DailyBottomVolumeSurgeAnalyzer
 
 router = APIRouter()
 
@@ -150,6 +151,29 @@ def api_smart_portfolio(limit: int = 5):
     analyzer = SmartPortfolioAnalyzer()
     results = analyzer.get_portfolio_recommendation(limit=limit)
     return results
+
+
+@router.get("/daily_bottom_volume_surge")
+def api_daily_bottom_volume_surge(
+    vol_ratio: float = 3.0,
+    price_pos: float = 0.2
+):
+    """
+    日线级别放巨量，250日线下方，底部，主板。
+    
+    - vol_ratio: 成交量放大倍数阈值，默认 3.0
+    - price_pos: 价格位置阈值 (0-1)，默认 0.2 (处于过去250天波动的低位20%)
+    """
+    analyzer = DailyBottomVolumeSurgeAnalyzer()
+    results = analyzer.get_analysis_results(
+        vol_ratio_threshold=vol_ratio,
+        price_pos_threshold=price_pos
+    )
+
+    return {
+        "count": len(results),
+        "data": results,
+    }
 
 
 @router.get("/price_volume_1y")
