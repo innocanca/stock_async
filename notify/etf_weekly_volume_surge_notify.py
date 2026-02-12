@@ -101,30 +101,26 @@ def format_etf_markdown(results: list, min_ratio: float = 1.5, lookback_weeks: i
 
 ## 🏆 ETF周线放量榜单
 
-| 排名 | ETF名称 | 代码 | 最近周线截止日 | 最近一周成交量(手) | 最近一周成交额(亿元) | 过去3周最大周成交量(手) | 周放量倍数 |
-|------|---------|------|----------------|-------------------|---------------------|----------------------|-----------|"""
+| 排名 | ETF名称 | 代码 | 周放量倍数 |
+|------|---------|------|-----------|"""
 
     # 添加ETF信息
     for idx, etf in enumerate(results, 1):
         etf_name = etf.get('名称', etf.get('代码', '未知'))
         # 截断过长的名称
-        if len(etf_name) > 15:
-            etf_name = etf_name[:14] + '...'
+        if len(etf_name) > 20:
+            etf_name = etf_name[:19] + '...'
         
         code = etf.get('代码', etf.get('ts_code', '未知'))
-        week_end = etf.get('最近周线截止日', '未知')
-        last_week_vol = etf.get('最近一周成交量(手)', 0)
-        last_week_amount = etf.get('最近一周成交额(亿元)', 0)
-        max_prev_vol = etf.get('过去3周最大周成交量(手)', 0)
         volume_ratio = etf.get('周放量倍数', 0)
         
-        markdown_content += f"\n| {idx} | {etf_name} | {code} | {week_end} | {last_week_vol:,.0f} | {last_week_amount:.2f} | {max_prev_vol:,.0f} | {volume_ratio:.2f} |"
+        markdown_content += f"\n| {idx} | {etf_name} | {code} | {volume_ratio:.2f} |"
         
         # 限制显示前30只
         if idx >= 30:
             remaining = total_count - 30
             if remaining > 0:
-                markdown_content += f"\n| ... | ... | ... | ... | ... | ... | ... | 还有{remaining}只 |"
+                markdown_content += f"\n| ... | ... | ... | 还有{remaining}只 |"
             break
 
     # 添加统计信息
@@ -143,8 +139,7 @@ def format_etf_markdown(results: list, min_ratio: float = 1.5, lookback_weeks: i
 ## 💡 说明
 
 - **放量倍数**: 最近一周成交量 / 过去{lookback_weeks}周最大周成交量
-- **成交额**: 最近一周成交额（亿元）
-- 数据按放量倍数和成交额综合排序
+- 数据按放量倍数排序
 
 ---
 *数据来源: Tushare*  
