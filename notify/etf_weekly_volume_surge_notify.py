@@ -159,6 +159,20 @@ def main():
         # 创建分析器
         analyzer = ETFWeeklyVolumeSurgeAnalyzer()
         
+        # 先测试数据库连接
+        logger.info("检查数据库连接...")
+        if not analyzer.db.connect():
+            logger.error("❌ 数据库连接失败，请检查 config.py 中的数据库配置")
+            logger.error(f"数据库配置: host={analyzer.db.config.get('host')}, user={analyzer.db.config.get('user')}, database={analyzer.db.config.get('database')}")
+            # 即使连接失败，也发送一个错误通知
+            error_msg = format_etf_markdown([])
+            error_msg = error_msg.replace("今日未发现周线明显放量的ETF", "⚠️ 数据库连接失败，无法获取ETF数据\n\n请检查数据库配置和连接状态")
+            send_markdown_message(error_msg)
+            return 1
+        else:
+            logger.info("✅ 数据库连接成功")
+            analyzer.db.disconnect()
+        
         # 获取分析结果（使用默认参数）
         logger.info("正在查询ETF周线放量数据...")
         results = analyzer.get_analysis_results(
@@ -171,6 +185,9 @@ def main():
             logger.info("未发现符合条件的ETF")
         else:
             logger.info(f"发现 {len(results)} 只符合条件的ETF")
+            # 打印前3条结果用于调试
+            for i, r in enumerate(results[:3], 1):
+                logger.info(f"  {i}. {r.get('名称', r.get('代码'))} - 放量倍数: {r.get('周放量倍数', 0):.2f}倍")
         
         # 生成推送消息
         markdown_msg = format_etf_markdown(results)
@@ -188,6 +205,19 @@ def main():
             
     except Exception as e:
         logger.error(f"ETF周线放量推送失败: {e}", exc_info=True)
+        # 发送错误通知
+        try:
+            error_msg = f"""# ❌ ETF周线放量推送失败
+
+**错误信息**: {str(e)}
+
+**时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+请检查日志文件获取详细信息。
+"""
+            send_markdown_message(error_msg)
+        except:
+            pass
         return 1
     
     logger.info("=== ETF周线放量推送结束 ===")
