@@ -184,12 +184,21 @@ def main():
             analyzer.db.disconnect()
         
         # 获取分析结果（使用默认参数）
+        # 注意：get_analysis_results 内部会使用 with self.db: 重新连接
         logger.info("正在查询ETF周线放量数据...")
-        results = analyzer.get_analysis_results(
-            min_ratio=1.5,
-            lookback_weeks=3,
-            min_last_week_amount_yi=1.0,
-        )
+        try:
+            results = analyzer.get_analysis_results(
+                min_ratio=1.5,
+                lookback_weeks=3,
+                min_last_week_amount_yi=1.0,
+            )
+        except Exception as e:
+            logger.error(f"❌ 查询ETF数据时出错: {e}", exc_info=True)
+            # 发送错误通知
+            error_msg = format_etf_markdown([])
+            error_msg = error_msg.replace("今日未发现周线明显放量的ETF", f"⚠️ 查询ETF数据失败\n\n错误: {str(e)}\n\n请检查数据库连接和配置")
+            send_markdown_message(error_msg)
+            return 1
         
         if not results:
             logger.info("未发现符合条件的ETF")
