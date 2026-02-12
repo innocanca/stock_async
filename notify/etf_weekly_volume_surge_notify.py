@@ -26,6 +26,8 @@ logger = logging.getLogger(__name__)
 
 # 检查并导入必要的模块
 try:
+    # 确保先导入 config，使用统一的配置
+    from config import MYSQL_CONFIG
     from query.strategy.query_etf_weekly_volume_surge import ETFWeeklyVolumeSurgeAnalyzer
     from send_msg import send_markdown_message
 except ModuleNotFoundError as e:
@@ -156,14 +158,22 @@ def main():
     logger.info("=== ETF周线放量推送开始 ===")
     
     try:
-        # 创建分析器
+        # 验证使用的配置
+        logger.info(f"使用数据库配置: host={MYSQL_CONFIG.get('host')}, user={MYSQL_CONFIG.get('user')}, database={MYSQL_CONFIG.get('database')}")
+        
+        # 创建分析器（会使用统一的 MYSQL_CONFIG）
         analyzer = ETFWeeklyVolumeSurgeAnalyzer()
+        
+        # 验证分析器使用的配置是否与统一配置一致
+        if analyzer.db.config != MYSQL_CONFIG:
+            logger.warning("⚠️ 分析器使用的配置与统一配置不一致，将使用统一配置")
+            analyzer.db.config = MYSQL_CONFIG
         
         # 先测试数据库连接
         logger.info("检查数据库连接...")
         if not analyzer.db.connect():
             logger.error("❌ 数据库连接失败，请检查 config.py 中的数据库配置")
-            logger.error(f"数据库配置: host={analyzer.db.config.get('host')}, user={analyzer.db.config.get('user')}, database={analyzer.db.config.get('database')}")
+            logger.error(f"数据库配置: host={MYSQL_CONFIG.get('host')}, user={MYSQL_CONFIG.get('user')}, database={MYSQL_CONFIG.get('database')}")
             # 即使连接失败，也发送一个错误通知
             error_msg = format_etf_markdown([])
             error_msg = error_msg.replace("今日未发现周线明显放量的ETF", "⚠️ 数据库连接失败，无法获取ETF数据\n\n请检查数据库配置和连接状态")
