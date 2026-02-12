@@ -41,6 +41,9 @@ CRON_CONFIG="# 股票数据系统定时任务
 # 每天19:00执行高位突破跟进策略
 0 19 * * 1-5 cd $SCRIPT_DIR && $PYTHON_PATH notify/breakout_follow_notify.py >> strategy_notify.log 2>&1
 
+# 每天19:05执行ETF周线放量推送
+5 19 * * 1-5 cd $SCRIPT_DIR && $PYTHON_PATH notify/etf_weekly_volume_surge_notify.py >> strategy_notify.log 2>&1
+
 # 每天19:10执行每日市场复盘(带推送)
 10 19 * * 1-5 cd $SCRIPT_DIR && $PYTHON_PATH notify/daily_market_review.py --notify >> daily_review.log 2>&1"
 
@@ -67,6 +70,7 @@ echo "18:45 - 选手模式策略集合"
 echo "18:50 - 底部反转抄底策略（广生堂模式）"
 echo "18:55 - 强势回调低吸策略（光库科技模式）"
 echo "19:00 - 高位突破跟进策略（金信诺模式）"
+echo "19:05 - ETF周线放量推送"
 echo "19:10 - 每日市场复盘分析（推送通知）"
 echo ""
 
