@@ -1,0 +1,1576 @@
+{
+  "global": {
+    "start_date": "20260101",
+    "end_date": "20260324",
+    "month": "202603",
+    "sample_ts_code": "000001.SZ",
+    "calendar_exchange": "SSE",
+    "table_prefix": "ts_raw",
+    "stop_on_error": false,
+    "to_db": true
+  },
+  "tasks": [
+    {
+      "id": "stock_basic",
+      "interface": "stock_basic",
+      "enabled": true,
+      "fields": null,
+      "params": {},
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_stock_basic",
+      "unique_keys": "ts_code",
+      "note": ""
+    },
+    {
+      "id": "daily_share",
+      "interface": "daily_share",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_daily_share",
+      "unique_keys": null,
+      "note": "文档接口名为 stk_premarket。"
+    },
+    {
+      "id": "trade_cal",
+      "interface": "trade_cal",
+      "enabled": true,
+      "fields": null,
+      "params": {},
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_trade_cal",
+      "unique_keys": "cal_date",
+      "note": ""
+    },
+    {
+      "id": "stk_st",
+      "interface": "stk_st",
+      "enabled": true,
+      "fields": null,
+      "params": {},
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_stk_st",
+      "unique_keys": "ts_code",
+      "note": ""
+    },
+    {
+      "id": "risk_warning_stocks",
+      "interface": "risk_warning_stocks",
+      "enabled": true,
+      "fields": null,
+      "params": {},
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_risk_warning_stocks",
+      "unique_keys": "ts_code,imp_date,pub_date",
+      "note": "文档接口名为 st。"
+    },
+    {
+      "id": "hs_const",
+      "interface": "hs_const",
+      "enabled": true,
+      "fields": null,
+      "params": {},
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_hs_const",
+      "unique_keys": "ts_code,is_new",
+      "note": ""
+    },
+    {
+      "id": "namechange",
+      "interface": "namechange",
+      "enabled": true,
+      "fields": null,
+      "params": {},
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_namechange",
+      "unique_keys": "ts_code,start_date,end_date",
+      "note": ""
+    },
+    {
+      "id": "stock_company",
+      "interface": "stock_company",
+      "enabled": true,
+      "fields": null,
+      "params": {},
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_stock_company",
+      "unique_keys": "ts_code",
+      "note": ""
+    },
+    {
+      "id": "stk_managers",
+      "interface": "stk_managers",
+      "enabled": true,
+      "fields": null,
+      "params": {},
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_stk_managers",
+      "unique_keys": "ts_code,ann_date,name,title",
+      "note": ""
+    },
+    {
+      "id": "stk_rewards",
+      "interface": "stk_rewards",
+      "enabled": true,
+      "fields": null,
+      "params": {},
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_stk_rewards",
+      "unique_keys": "ts_code,ann_date,name,title",
+      "note": ""
+    },
+    {
+      "id": "bse_mapping",
+      "interface": "bse_mapping",
+      "enabled": true,
+      "fields": null,
+      "params": {},
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_bse_mapping",
+      "unique_keys": "o_code,n_code",
+      "note": "文档接口名为 bse_mapping。"
+    },
+    {
+      "id": "new_share",
+      "interface": "new_share",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_new_share",
+      "unique_keys": "ts_code,ipo_date",
+      "note": ""
+    },
+    {
+      "id": "stock_history_list",
+      "interface": "stock_history_list",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_stock_history_list",
+      "unique_keys": "ts_code,trade_date",
+      "note": "文档接口名为 bak_basic。"
+    },
+    {
+      "id": "daily",
+      "interface": "daily",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_daily",
+      "unique_keys": "ts_code,trade_date",
+      "note": ""
+    },
+    {
+      "id": "rt_daily",
+      "interface": "rt_daily",
+      "enabled": false,
+      "fields": null,
+      "params": {
+        "ts_code": "3*.SZ,6*.SH,0*.SZ,9*.BJ"
+      },
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_rt_daily",
+      "unique_keys": "ts_code,trade_time",
+      "note": "文档接口名为 rt_k（A股实时日线）。默认跳过实时类任务；如需抓取请在交易时段手动启用。"
+    },
+    {
+      "id": "hist_min",
+      "interface": "hist_min",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "ts_code": "000001.SZ",
+        "freq": "1min",
+        "start_date": "20260101 09:30:00",
+        "end_date": "20260324 15:00:00"
+      },
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_hist_min",
+      "unique_keys": "ts_code,trade_time",
+      "note": "文档接口名为 stk_mins。"
+    },
+    {
+      "id": "rt_min",
+      "interface": "rt_min",
+      "enabled": false,
+      "fields": null,
+      "params": {
+        "ts_code": "000001.SZ",
+        "freq": "1MIN"
+      },
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_rt_min",
+      "unique_keys": "ts_code,time",
+      "note": "文档接口名为 rt_min。默认跳过实时类任务；如需抓取请在交易时段手动启用。"
+    },
+    {
+      "id": "weekly",
+      "interface": "weekly",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_weekly",
+      "unique_keys": "ts_code,trade_date",
+      "note": ""
+    },
+    {
+      "id": "monthly",
+      "interface": "monthly",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_monthly",
+      "unique_keys": "ts_code,trade_date",
+      "note": ""
+    },
+    {
+      "id": "pro_bar_adj",
+      "interface": "pro_bar_adj",
+      "enabled": true,
+      "fields": null,
+      "params": {},
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_pro_bar_adj",
+      "unique_keys": "ts_code,trade_date",
+      "note": "通过 ts.pro_bar 调用。"
+    },
+    {
+      "id": "week_month_daily_refresh",
+      "interface": "week_month_daily_refresh",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324",
+        "freq": "week"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_week_month_daily_refresh",
+      "unique_keys": "ts_code,trade_date,freq",
+      "note": "文档接口名为 stk_weekly_monthly。"
+    },
+    {
+      "id": "week_month_adj_daily_refresh",
+      "interface": "week_month_adj_daily_refresh",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324",
+        "freq": "week"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_week_month_adj_daily_refresh",
+      "unique_keys": "ts_code,trade_date,freq",
+      "note": "文档接口名为 stk_week_month_adj。"
+    },
+    {
+      "id": "adj_factor",
+      "interface": "adj_factor",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_adj_factor",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "realtime_tick",
+      "interface": "realtime_tick",
+      "enabled": false,
+      "fields": null,
+      "params": {
+        "ts_code": "000001.SZ",
+        "src": "dc"
+      },
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_realtime_tick",
+      "unique_keys": "ts_code,time",
+      "note": "文档接口名为 realtime_quote（实时盘口TICK快照）。默认跳过实时类任务；如需抓取请在交易时段手动启用。"
+    },
+    {
+      "id": "realtime_deal",
+      "interface": "realtime_deal",
+      "enabled": false,
+      "fields": null,
+      "params": {
+        "ts_code": "000001.SZ",
+        "src": "dc"
+      },
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_realtime_deal",
+      "unique_keys": "time,price,volume",
+      "note": "文档接口名为 realtime_tick（实时成交数据）。默认跳过实时类任务；如需抓取请在交易时段手动启用。"
+    },
+    {
+      "id": "realtime_rank",
+      "interface": "realtime_rank",
+      "enabled": false,
+      "fields": null,
+      "params": {
+        "src": "dc"
+      },
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_realtime_rank",
+      "unique_keys": "ts_code,name",
+      "note": "通过 tushare 顶层函数 realtime_list 调用。默认跳过实时类任务；如需抓取请在交易时段手动启用。"
+    },
+    {
+      "id": "daily_basic",
+      "interface": "daily_basic",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_daily_basic",
+      "unique_keys": "ts_code,trade_date",
+      "note": ""
+    },
+    {
+      "id": "stk_limit",
+      "interface": "stk_limit",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_stk_limit",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "suspend_d",
+      "interface": "suspend_d",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_suspend_d",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "hsgt_top10",
+      "interface": "hsgt_top10",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_hsgt_top10",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "ggt_top10",
+      "interface": "ggt_top10",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_ggt_top10",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "ggt_daily",
+      "interface": "ggt_daily",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_ggt_daily",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "ggt_monthly",
+      "interface": "ggt_monthly",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_ggt_monthly",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "backup_quotes",
+      "interface": "backup_quotes",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_backup_quotes",
+      "unique_keys": null,
+      "note": "文档接口名为 bak_daily。"
+    },
+    {
+      "id": "income",
+      "interface": "income",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_income",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "balancesheet",
+      "interface": "balancesheet",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_balancesheet",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "cashflow",
+      "interface": "cashflow",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_cashflow",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "forecast",
+      "interface": "forecast",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_forecast",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "express",
+      "interface": "express",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_express",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "dividend",
+      "interface": "dividend",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_dividend",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "fina_indicator",
+      "interface": "fina_indicator",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_fina_indicator",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "fina_audit",
+      "interface": "fina_audit",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_fina_audit",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "fina_mainbz",
+      "interface": "fina_mainbz",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_fina_mainbz",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "disclosure_date",
+      "interface": "disclosure_date",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_disclosure_date",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "abnormal_movement",
+      "interface": "abnormal_movement",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_abnormal_movement",
+      "unique_keys": null,
+      "note": "文档接口名为 stk_shock。"
+    },
+    {
+      "id": "serious_abnormal_movement",
+      "interface": "serious_abnormal_movement",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_serious_abnormal_movement",
+      "unique_keys": null,
+      "note": "文档接口名为 stk_high_shock。"
+    },
+    {
+      "id": "exchange_key_security_notice",
+      "interface": "exchange_key_security_notice",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_exchange_key_security_notice",
+      "unique_keys": null,
+      "note": "文档接口名为 stk_alert。"
+    },
+    {
+      "id": "top10_holders",
+      "interface": "top10_holders",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_top10_holders",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "top10_floatholders",
+      "interface": "top10_floatholders",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_top10_floatholders",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "pledge_stat",
+      "interface": "pledge_stat",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_pledge_stat",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "pledge_detail",
+      "interface": "pledge_detail",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_pledge_detail",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "repurchase",
+      "interface": "repurchase",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_repurchase",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "share_float",
+      "interface": "share_float",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_share_float",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "block_trade",
+      "interface": "block_trade",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_block_trade",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "stk_account",
+      "interface": "stk_account",
+      "enabled": true,
+      "fields": null,
+      "params": {},
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_stk_account",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "stk_account_old",
+      "interface": "stk_account_old",
+      "enabled": true,
+      "fields": null,
+      "params": {},
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_stk_account_old",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "stk_holdernumber",
+      "interface": "stk_holdernumber",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_stk_holdernumber",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "stk_holdertrade",
+      "interface": "stk_holdertrade",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_stk_holdertrade",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "broker_earning_forecast",
+      "interface": "broker_earning_forecast",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_broker_earning_forecast",
+      "unique_keys": "ts_code,report_date,org_name,quarter",
+      "note": "文档接口名为 report_rc（卖方盈利预测数据）。"
+    },
+    {
+      "id": "cyq_perf",
+      "interface": "cyq_perf",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_cyq_perf",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "cyq_chips",
+      "interface": "cyq_chips",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_cyq_chips",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "stk_factor_pro",
+      "interface": "stk_factor_pro",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_stk_factor_pro",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "ccass_hold",
+      "interface": "ccass_hold",
+      "enabled": true,
+      "fields": null,
+      "params": {},
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_ccass_hold",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "ccass_hold_detail",
+      "interface": "ccass_hold_detail",
+      "enabled": true,
+      "fields": null,
+      "params": {},
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_ccass_hold_detail",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "hk_hold",
+      "interface": "hk_hold",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_hk_hold",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "stk_auction_o",
+      "interface": "stk_auction_o",
+      "enabled": true,
+      "fields": null,
+      "params": {},
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_stk_auction_o",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "stk_auction_c",
+      "interface": "stk_auction_c",
+      "enabled": true,
+      "fields": null,
+      "params": {},
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_stk_auction_c",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "nine_turn",
+      "interface": "nine_turn",
+      "enabled": true,
+      "fields": null,
+      "params": {},
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_nine_turn",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "ah_daily",
+      "interface": "ah_daily",
+      "enabled": true,
+      "fields": null,
+      "params": {},
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_ah_daily",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "stk_surv",
+      "interface": "stk_surv",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_stk_surv",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "broker_montly_pick",
+      "interface": "broker_montly_pick",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "month": "202603"
+      },
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_broker_montly_pick",
+      "unique_keys": "month,broker,ts_code",
+      "note": "文档接口名为 broker_recommend。"
+    },
+    {
+      "id": "margin",
+      "interface": "margin",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_margin",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "margin_detail",
+      "interface": "margin_detail",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_margin_detail",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "margin_target",
+      "interface": "margin_target",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_margin_target",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "seclending_summary",
+      "interface": "seclending_summary",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_seclending_summary",
+      "unique_keys": null,
+      "note": "文档接口名为 slb_sec。"
+    },
+    {
+      "id": "seclending_finance_summary",
+      "interface": "seclending_finance_summary",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_seclending_finance_summary",
+      "unique_keys": null,
+      "note": "文档接口名为 slb_len。"
+    },
+    {
+      "id": "seclending_detail",
+      "interface": "seclending_detail",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_seclending_detail",
+      "unique_keys": null,
+      "note": "文档接口名为 slb_sec_detail。"
+    },
+    {
+      "id": "market_making_lending_summary",
+      "interface": "market_making_lending_summary",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_market_making_lending_summary",
+      "unique_keys": null,
+      "note": "文档接口名为 slb_len_mm。"
+    },
+    {
+      "id": "moneyflow",
+      "interface": "moneyflow",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_moneyflow",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "moneyflow_ths",
+      "interface": "moneyflow_ths",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_moneyflow_ths",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "moneyflow_dc",
+      "interface": "moneyflow_dc",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_moneyflow_dc",
+      "unique_keys": "ts_code,trade_date",
+      "note": ""
+    },
+    {
+      "id": "moneyflow_sector_ths",
+      "interface": "moneyflow_sector_ths",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_moneyflow_sector_ths",
+      "unique_keys": null,
+      "note": "文档接口名为 moneyflow_cnt_ths（同花顺概念板块资金流向）。"
+    },
+    {
+      "id": "moneyflow_ind_ths",
+      "interface": "moneyflow_ind_ths",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_moneyflow_ind_ths",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "moneyflow_sector_dc",
+      "interface": "moneyflow_sector_dc",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324",
+        "content_type": "概念"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_moneyflow_sector_dc",
+      "unique_keys": "trade_date,ts_code,content_type",
+      "note": "通过 moneyflow_ind_dc 调用，使用 content_type 区分行业/概念/地域板块。"
+    },
+    {
+      "id": "moneyflow_mkt_dc",
+      "interface": "moneyflow_mkt_dc",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_moneyflow_mkt_dc",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "moneyflow_hsgt",
+      "interface": "moneyflow_hsgt",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_moneyflow_hsgt",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "top_list",
+      "interface": "top_list",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_top_list",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "top_inst",
+      "interface": "top_inst",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_top_inst",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "limit_list_ths",
+      "interface": "limit_list_ths",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_limit_list_ths",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "limit_list_d",
+      "interface": "limit_list_d",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_limit_list_d",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "limit_step",
+      "interface": "limit_step",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_limit_step",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "limit_strong",
+      "interface": "limit_strong",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_limit_strong",
+      "unique_keys": null,
+      "note": "文档接口名为 limit_cpt_list。"
+    },
+    {
+      "id": "ths_index",
+      "interface": "ths_index",
+      "enabled": true,
+      "fields": null,
+      "params": {},
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_ths_index",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "ths_daily",
+      "interface": "ths_daily",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_ths_daily",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "ths_member",
+      "interface": "ths_member",
+      "enabled": true,
+      "fields": null,
+      "params": {},
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_ths_member",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "dc_index",
+      "interface": "dc_index",
+      "enabled": true,
+      "fields": null,
+      "params": {},
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_dc_index",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "dc_member",
+      "interface": "dc_member",
+      "enabled": true,
+      "fields": null,
+      "params": {},
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_dc_member",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "dc_daily",
+      "interface": "dc_daily",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_dc_daily",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "stk_auction",
+      "interface": "stk_auction",
+      "enabled": true,
+      "fields": null,
+      "params": {},
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_stk_auction",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "hot_money_roster",
+      "interface": "hot_money_roster",
+      "enabled": true,
+      "fields": null,
+      "params": {},
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_hot_money_roster",
+      "unique_keys": null,
+      "note": "文档接口名为 hm_list。"
+    },
+    {
+      "id": "hot_money_trade_detail",
+      "interface": "hot_money_trade_detail",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_hot_money_trade_detail",
+      "unique_keys": "trade_date,ts_code,hm_name",
+      "note": "文档接口名为 hm_detail。"
+    },
+    {
+      "id": "ths_hot",
+      "interface": "ths_hot",
+      "enabled": false,
+      "fields": null,
+      "params": {
+        "trade_date": "20260324",
+        "market": "热股",
+        "is_new": "Y"
+      },
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_ths_hot",
+      "unique_keys": "trade_date,ts_code,rank_time",
+      "note": "默认跳过实时热榜任务；如需抓取请在交易时段或收盘后手动启用。"
+    },
+    {
+      "id": "dc_hot",
+      "interface": "dc_hot",
+      "enabled": false,
+      "fields": null,
+      "params": {
+        "trade_date": "20260324",
+        "market": "A股市场",
+        "hot_type": "人气榜",
+        "is_new": "Y"
+      },
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_dc_hot",
+      "unique_keys": "trade_date,ts_code,rank_time",
+      "note": "默认跳过实时热榜任务；如需抓取请在交易时段或收盘后手动启用。"
+    },
+    {
+      "id": "tdx_index",
+      "interface": "tdx_index",
+      "enabled": true,
+      "fields": null,
+      "params": {},
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_tdx_index",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "tdx_member",
+      "interface": "tdx_member",
+      "enabled": true,
+      "fields": null,
+      "params": {},
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_tdx_member",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "tdx_daily",
+      "interface": "tdx_daily",
+      "enabled": true,
+      "fields": null,
+      "params": {},
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_tdx_daily",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "kpl_list",
+      "interface": "kpl_list",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": true,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_kpl_list",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "kpl_concept",
+      "interface": "kpl_concept",
+      "enabled": true,
+      "fields": null,
+      "params": {},
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_kpl_concept",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "dc_topic",
+      "interface": "dc_topic",
+      "enabled": true,
+      "fields": null,
+      "params": {},
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_dc_topic",
+      "unique_keys": null,
+      "note": ""
+    },
+    {
+      "id": "dc_topic_member",
+      "interface": "dc_topic_member",
+      "enabled": true,
+      "fields": null,
+      "params": {},
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "ts_raw_dc_topic_member",
+      "unique_keys": null,
+      "note": ""
+    }
+  ]
+}

@@ -8,6 +8,8 @@ import pymysql
 import pandas as pd
 from typing import Optional, List
 import logging
+import math
+import re
 from config import MYSQL_CONFIG
 
 # 使用统一日志配置
@@ -2655,6 +2657,227 @@ class StockDatabase:
                 return True
         except Exception as e:
             logger.error(f"创建分红送股数据表失败: {e}")
+            return False
+
+    def _sanitize_sql_identifier(self, name: str) -> str:
+        """将外部输入转换为安全的表名/字段名。"""
+        if not name:
+            raise ValueError("标识符不能为空")
+
+        sanitized = re.sub(r"[^0-9a-zA-Z_]+", "_", name.strip().lower())
+        sanitized = re.sub(r"_+", "_", sanitized).strip("_")
+        if not sanitized:
+            raise ValueError(f"无效标识符: {name}")
+        return sanitized
+
+    def _infer_mysql_column_type(self, series: pd.Series) -> str:
+        """根据 pandas Series 粗略推断 MySQL 字段类型。"""
+        non_null = series.dropna()
+
+        if pd.api.types.is_datetime64_any_dtype(series):
+            return "DATETIME"
+        if pd.api.types.is_bool_dtype(series):
+            return "TINYINT(1)"
+        if pd.api.types.is_integer_dtype(series):
+            return "BIGINT"
+        if pd.api.types.is_float_dtype(series):
+            return "DOUBLE"
+
+        if non_null.empty:
+            return "TEXT"
+
+        sample = non_null.iloc[0]
+        if isinstance(sample, pd.Timestamp):
+            return "DATETIME"
+        if isinstance(sample, bool):
+            return "TINYINT(1)"
+        if isinstance(sample, int):
+            return "BIGINT"
+        if isinstance(sample, float):
+            return "DOUBLE"
+
+        max_len = int(non_null.astype(str).str.len().max())
+        if max_len <= 64:
+            return "VARCHAR(64)"
+        if max_len <= 255:
+            return "VARCHAR(255)"
+        if max_len <= 1024:
+            return "TEXT"
+        return "LONGTEXT"
+
+    def _normalize_dataframe_for_mysql(self, df: pd.DataFrame) -> pd.DataFrame:
+        """将 DataFrame 中的值转换为更适合 pymysql 的 Python 对象。"""
+        normalized = df.copy()
+
+        for column in normalized.columns:
+            if pd.api.types.is_datetime64_any_dtype(normalized[column]):
+                normalized[column] = normalized[column].astype(object).apply(
+                    lambda value: value.to_pydatetime() if pd.notna(value) else None
+                )
+                continue
+
+            normalized[column] = normalized[column].astype(object).apply(
+                self._normalize_scalar_for_mysql
+            )
+
+        return normalized
+
+    def _normalize_scalar_for_mysql(self, value):
+        if pd.isna(value):
+            return None
+        if isinstance(value, pd.Timestamp):
+            return value.to_pydatetime()
+        if hasattr(value, "item"):
+            try:
+                return value.item()
+            except Exception:
+                return value
+        if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
+            return None
+        return value
+
+    def create_dynamic_table(
+        self,
+        table_name: str,
+        df: pd.DataFrame,
+        unique_keys: Optional[List[str]] = None,
+        table_comment: str = "",
+    ) -> bool:
+        """
+        按 DataFrame 字段动态创建 MySQL 表。
+
+        Args:
+            table_name: 表名
+            df: 数据源 DataFrame
+            unique_keys: 可选唯一键字段
+            table_comment: 表备注
+        """
+        if not self.connection:
+            logger.error("请先连接数据库")
+            return False
+        if df is None or df.empty:
+            logger.error("DataFrame 为空，无法创建动态表")
+            return False
+
+        try:
+            safe_table_name = self._sanitize_sql_identifier(table_name)
+            safe_columns = [
+                (column, self._sanitize_sql_identifier(column))
+                for column in df.columns
+            ]
+            safe_unique_keys = [
+                self._sanitize_sql_identifier(column)
+                for column in (unique_keys or [])
+                if column in df.columns
+            ]
+
+            column_sql_parts = [
+                "`id` BIGINT AUTO_INCREMENT PRIMARY KEY"
+            ]
+            for original_name, safe_name in safe_columns:
+                mysql_type = self._infer_mysql_column_type(df[original_name])
+                column_sql_parts.append(f"`{safe_name}` {mysql_type} NULL")
+
+            column_sql_parts.append(
+                "`created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间'"
+            )
+            column_sql_parts.append(
+                "`updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间'"
+            )
+
+            if safe_unique_keys:
+                unique_sql = ", ".join(f"`{column}`" for column in safe_unique_keys)
+                column_sql_parts.append(f"UNIQUE KEY `uniq_main` ({unique_sql})")
+
+            indexed_columns = []
+            for candidate in ["ts_code", "trade_date", "ann_date", "end_date", "name"]:
+                if candidate in [safe_name for _, safe_name in safe_columns]:
+                    indexed_columns.append(candidate)
+            for candidate in indexed_columns[:3]:
+                column_sql_parts.append(f"INDEX `idx_{candidate}` (`{candidate}`)")
+
+            create_table_sql = (
+                f"CREATE TABLE IF NOT EXISTS `{safe_table_name}` ("
+                + ", ".join(column_sql_parts)
+                + f") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='{table_comment or safe_table_name}';"
+            )
+
+            with self.connection.cursor() as cursor:
+                cursor.execute(create_table_sql)
+                self.connection.commit()
+            logger.info(f"动态表 {safe_table_name} 创建成功")
+            return True
+        except Exception as e:
+            logger.error(f"创建动态表失败: {e}")
+            return False
+
+    def insert_dynamic_data(
+        self,
+        table_name: str,
+        df: pd.DataFrame,
+        unique_keys: Optional[List[str]] = None,
+    ) -> bool:
+        """
+        将 DataFrame 批量写入动态表。
+
+        Args:
+            table_name: 目标表名
+            df: 数据源 DataFrame
+            unique_keys: 若提供，则使用 ON DUPLICATE KEY UPDATE
+        """
+        if not self.connection:
+            logger.error("请先连接数据库")
+            return False
+        if df is None or df.empty:
+            logger.warning("没有可插入的数据")
+            return False
+
+        try:
+            safe_table_name = self._sanitize_sql_identifier(table_name)
+            normalized_df = self._normalize_dataframe_for_mysql(df)
+
+            original_columns = list(normalized_df.columns)
+            safe_columns = [self._sanitize_sql_identifier(column) for column in original_columns]
+
+            placeholders = ", ".join(["%s"] * len(safe_columns))
+            column_sql = ", ".join(f"`{column}`" for column in safe_columns)
+
+            insert_sql = (
+                f"INSERT INTO `{safe_table_name}` ({column_sql}) VALUES ({placeholders})"
+            )
+
+            valid_unique_keys = [
+                self._sanitize_sql_identifier(column)
+                for column in (unique_keys or [])
+                if column in original_columns
+            ]
+            if valid_unique_keys:
+                update_columns = [
+                    column for column in safe_columns
+                    if column not in valid_unique_keys
+                ]
+                if update_columns:
+                    update_sql = ", ".join(
+                        f"`{column}` = VALUES(`{column}`)" for column in update_columns
+                    )
+                    insert_sql += f" ON DUPLICATE KEY UPDATE {update_sql}"
+
+            data_list = [
+                tuple(
+                    self._normalize_scalar_for_mysql(row[column])
+                    for column in original_columns
+                )
+                for _, row in normalized_df.iterrows()
+            ]
+
+            with self.connection.cursor() as cursor:
+                cursor.executemany(insert_sql, data_list)
+                self.connection.commit()
+
+            logger.info(f"动态表 {safe_table_name} 插入/更新成功，共 {len(data_list)} 条")
+            return True
+        except Exception as e:
+            logger.error(f"动态表插入数据失败: {e}")
             return False
     
     def __enter__(self):
