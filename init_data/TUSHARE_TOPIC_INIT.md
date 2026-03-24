@@ -45,6 +45,41 @@ python init_data/bulk_init_tushare_stock_data.py \
   --config init_data/tushare_index_init.template.json
 ```
 
+## 每日增量更新
+
+如果你已经完成过首轮初始化，日常不建议再重复执行全量模板。
+
+推荐直接使用：
+
+```bash
+python sync_daily_incremental.py
+```
+
+当前增量脚本会处理：
+
+- `stock_basic`
+- `daily_data`
+- `weekly_data`
+- `etf_basic`
+- `etf_daily`
+- `index_basic`
+- `index_daily`
+- `index_weekly`
+- `index_weight`
+- `index_dailybasic`
+
+默认增量窗口：
+
+- ETF/指数日线、指数每日指标：最近 `5` 天
+- 指数周线、指数权重：最近 `90` 天
+- ETF/指数基础信息：全量刷新，依赖 UPSERT 幂等更新
+
+定时任务示例：
+
+```bash
+cd /home/leonfyang/workspace/stock_async && python sync_daily_incremental.py
+```
+
 ## 单接口探测/落库
 
 ```bash
@@ -64,3 +99,4 @@ python init_data/init_tushare_stock_data_interfaces.py \
 - `stock` 专题默认继续写入 `ts_raw_*` 动态表。
 - `etf` 与 `index` 专题默认继续写入既有固定表，例如 `etf_basic`、`etf_daily`、`index_basic`、`index_daily`。
 - 旧的 ETF/指数固定初始化脚本已被新的通用入口替代。
+- 全量初始化建议使用本页的模板入口；日常增量建议使用 `sync_daily_incremental.py`。
