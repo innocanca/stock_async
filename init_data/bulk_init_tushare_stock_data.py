@@ -30,6 +30,7 @@ from init_data.init_tushare_stock_data_interfaces import (
     build_default_table_name,
     fetch_interface_by_trade_dates,
     fetch_interface_by_week_end_dates,
+    persist_interface_by_trade_dates,
     persist_to_database,
 )
 from log_config import get_logger
@@ -409,6 +410,39 @@ def run_tasks(config: dict, selected_interfaces=None, selected_categories=None, 
         logger.info(f"开始批量初始化: {task['interface']} ({interface.title})")
 
         try:
+            if to_db and interface.persistence_mode == "dynamic" and (
+                task.get("iterate_trade_dates") or interface.fetch_strategy == "trade_dates"
+            ):
+                persisted_rows = persist_interface_by_trade_dates(
+                    fetcher=fetcher,
+                    identifier=task["interface"],
+                    fields=task.get("fields"),
+                    params=deepcopy(task.get("params", {})),
+                    table_name=task.get("table_name"),
+                    table_prefix=global_config.get("table_prefix", "ts_raw"),
+                    unique_keys=task.get("unique_keys"),
+                    calendar_exchange=task.get("calendar_exchange", "SSE"),
+                )
+                if persisted_rows <= 0:
+                    summary["failed"] += 1
+                    summary["results"].append({"interface": task["interface"], "status": "empty"})
+                    logger.warning(f"{task['interface']} 返回空数据")
+                    if stop_on_error:
+                        break
+                    continue
+
+                summary["success"] += 1
+                summary["results"].append(
+                    {
+                        "interface": task["interface"],
+                        "status": "success",
+                        "records": persisted_rows,
+                        "table_name": task.get("table_name") or interface.target_table,
+                    }
+                )
+                logger.info(f"{task['interface']} 初始化成功，记录数: {persisted_rows}")
+                continue
+
             df = fetch_dataframe_for_task(fetcher, task, interface)
             if df is None or df.empty:
                 last_error = fetcher.get_last_interface_error()

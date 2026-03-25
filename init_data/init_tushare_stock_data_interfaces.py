@@ -141,6 +141,23 @@ def fetch_interface(
     if interface is None:
         raise ValueError(f"未找到已注册的 Tushare 接口: {identifier}")
 
+    if iterate_trade_dates and to_db and interface.persistence_mode == "dynamic":
+        persisted_rows = persist_interface_by_trade_dates(
+            fetcher=fetcher,
+            identifier=identifier,
+            fields=fields,
+            params=params,
+            table_name=table_name,
+            table_prefix=table_prefix,
+            unique_keys=unique_keys,
+            calendar_exchange=calendar_exchange,
+        )
+        if persisted_rows <= 0:
+            logger.warning("接口返回为空")
+            return 1
+        logger.info(f"抓取并分批落库成功，共 {persisted_rows} 条记录")
+        return 0
+
     if iterate_trade_dates:
         df = fetch_interface_by_trade_dates(
             fetcher=fetcher,
@@ -296,13 +313,131 @@ def fetch_interface_by_trade_dates(
         return None
 
     merged_df = pd.concat(all_frames, ignore_index=True)
-    dedupe_keys = [column for column in ["ts_code", "trade_date", "rank_time", "hm_name"] if column in merged_df.columns]
-    if dedupe_keys:
-        merged_df = merged_df.drop_duplicates(subset=dedupe_keys, keep="last")
-    else:
-        merged_df = merged_df.drop_duplicates()
+    return dedupe_interface_dataframe(merged_df)
 
-    return merged_df
+
+def dedupe_interface_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    """按常见主键字段对接口结果去重。"""
+    dedupe_keys = [
+        column for column in ["ts_code", "trade_date", "rank_time", "hm_name", "index_code", "con_code"]
+        if column in df.columns
+    ]
+    if dedupe_keys:
+        return df.drop_duplicates(subset=dedupe_keys, keep="last")
+    return df.drop_duplicates()
+
+
+def persist_interface_by_trade_dates(
+    fetcher: StockDataFetcher,
+    identifier: str,
+    fields: str,
+    params: dict,
+    table_name: str = None,
+    table_prefix: str = "ts_raw",
+    unique_keys: str = None,
+    calendar_exchange: str = "SSE",
+    flush_every_days: int = 5,
+) -> int:
+    """
+    按交易日抓取并分批落库，避免低配机器把所有结果一次性堆在内存中。
+    """
+    start_date = params.get("start_date")
+    end_date = params.get("end_date")
+    if not start_date or not end_date:
+        raise ValueError("按交易日逐天分批落库时，必须提供 start_date 和 end_date")
+
+    base_params = {
+        key: value
+        for key, value in params.items()
+        if key not in {"start_date", "end_date", "trade_date"}
+    }
+
+    trade_cal = fetcher.get_trade_calendar(
+        start_date=start_date,
+        end_date=end_date,
+        exchange=calendar_exchange,
+    )
+    if trade_cal is None or trade_cal.empty:
+        return 0
+
+    trading_days = trade_cal["cal_date"].astype(str).tolist()
+    total_days = len(trading_days)
+    batch_frames = []
+    flushed_rows = 0
+    abort_remaining_days = False
+
+    for index, trade_date in enumerate(trading_days, 1):
+        if abort_remaining_days:
+            break
+
+        logger.info(f"按交易日抓取并落库 {identifier}: {trade_date} ({index}/{total_days})")
+
+        day_df = None
+        for attempt in range(3):
+            day_df = fetcher.fetch_registered_interface(
+                identifier=identifier,
+                fields=fields,
+                trade_date=trade_date,
+                **base_params,
+            )
+            if day_df is not None and not day_df.empty:
+                break
+
+            last_error = fetcher.get_last_interface_error()
+            if not last_error:
+                break
+
+            error_type = last_error.get("type")
+            if error_type in NON_RETRYABLE_INTERFACE_ERRORS:
+                logger.warning(
+                    f"{identifier} 因 `{error_type}` 跳过剩余交易日: {last_error.get('message')}"
+                )
+                abort_remaining_days = True
+                break
+
+            if error_type == "rate_limit" and attempt < 2:
+                wait_seconds = 5 * (attempt + 1)
+                logger.warning(
+                    f"{identifier} 命中频率限制，{wait_seconds} 秒后重试当前交易日: {trade_date}"
+                )
+                time.sleep(wait_seconds)
+                continue
+
+            if error_type == "rate_limit":
+                logger.warning(f"{identifier} 持续命中频率限制，跳过剩余交易日")
+                abort_remaining_days = True
+                break
+
+            break
+
+        if day_df is not None and not day_df.empty:
+            batch_frames.append(day_df)
+
+        should_flush = (
+            len(batch_frames) >= flush_every_days
+            or index == total_days
+            or abort_remaining_days
+        )
+        if should_flush and batch_frames:
+            batch_df = dedupe_interface_dataframe(pd.concat(batch_frames, ignore_index=True))
+            persist_to_database(
+                identifier=identifier,
+                df=batch_df,
+                table_name=table_name,
+                table_prefix=table_prefix,
+                unique_keys=unique_keys,
+            )
+            flushed_rows += len(batch_df)
+            logger.info(
+                f"{identifier} 已分批落库 {flushed_rows} 条，"
+                f"当前批次 {len(batch_df)} 条"
+            )
+            batch_frames = []
+
+        if not abort_remaining_days and index < total_days:
+            time.sleep(0.7)
+
+    return flushed_rows
 
 
 def fetch_interface_by_week_end_dates(
@@ -363,15 +498,7 @@ def fetch_interface_by_week_end_dates(
         return None
 
     merged_df = pd.concat(all_frames, ignore_index=True)
-    dedupe_keys = [
-        column for column in ["ts_code", "trade_date", "index_code", "con_code"]
-        if column in merged_df.columns
-    ]
-    if dedupe_keys:
-        merged_df = merged_df.drop_duplicates(subset=dedupe_keys, keep="last")
-    else:
-        merged_df = merged_df.drop_duplicates()
-    return merged_df
+    return dedupe_interface_dataframe(merged_df)
 
 
 def build_default_table_name(identifier: str, table_prefix: str) -> str:

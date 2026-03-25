@@ -2816,6 +2816,7 @@ class StockDatabase:
         table_name: str,
         df: pd.DataFrame,
         unique_keys: Optional[List[str]] = None,
+        batch_size: int = 2000,
     ) -> bool:
         """
         将 DataFrame 批量写入动态表。
@@ -2824,6 +2825,7 @@ class StockDatabase:
             table_name: 目标表名
             df: 数据源 DataFrame
             unique_keys: 若提供，则使用 ON DUPLICATE KEY UPDATE
+            batch_size: 每批写入行数，避免低配机器一次性占用过多内存
         """
         if not self.connection:
             logger.error("请先连接数据库")
@@ -2834,9 +2836,7 @@ class StockDatabase:
 
         try:
             safe_table_name = self._sanitize_sql_identifier(table_name)
-            normalized_df = self._normalize_dataframe_for_mysql(df)
-
-            original_columns = list(normalized_df.columns)
+            original_columns = list(df.columns)
             safe_columns = [self._sanitize_sql_identifier(column) for column in original_columns]
 
             placeholders = ", ".join(["%s"] * len(safe_columns))
@@ -2862,19 +2862,32 @@ class StockDatabase:
                     )
                     insert_sql += f" ON DUPLICATE KEY UPDATE {update_sql}"
 
-            data_list = [
-                tuple(
-                    self._normalize_scalar_for_mysql(row[column])
-                    for column in original_columns
-                )
-                for _, row in normalized_df.iterrows()
-            ]
+            total_rows = len(df)
+            inserted_rows = 0
+            batch_size = max(int(batch_size or 2000), 1)
 
             with self.connection.cursor() as cursor:
-                cursor.executemany(insert_sql, data_list)
-                self.connection.commit()
+                for start in range(0, total_rows, batch_size):
+                    end = min(start + batch_size, total_rows)
+                    batch_df = self._normalize_dataframe_for_mysql(df.iloc[start:end])
+                    data_list = [
+                        tuple(
+                            self._normalize_scalar_for_mysql(row[column])
+                            for column in original_columns
+                        )
+                        for _, row in batch_df.iterrows()
+                    ]
+                    cursor.executemany(insert_sql, data_list)
+                    self.connection.commit()
+                    inserted_rows += len(data_list)
 
-            logger.info(f"动态表 {safe_table_name} 插入/更新成功，共 {len(data_list)} 条")
+                    if total_rows > batch_size:
+                        logger.info(
+                            f"动态表 {safe_table_name} 分批插入进度: "
+                            f"{inserted_rows}/{total_rows}"
+                        )
+
+            logger.info(f"动态表 {safe_table_name} 插入/更新成功，共 {inserted_rows} 条")
             return True
         except Exception as e:
             logger.error(f"动态表插入数据失败: {e}")
