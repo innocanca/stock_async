@@ -8,7 +8,7 @@ import tushare as ts
 import pandas as pd
 import logging
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from config import TUSHARE_TOKEN
 from log_config import get_logger
@@ -2518,3 +2518,69 @@ class StockDataFetcher:
         logger.info(f"成功率: {len(all_data)}/{total_stocks} ({success_rate:.1f}%)")
         
         return combined_df
+
+    def get_fina_indicator(
+        self,
+        ts_code: str,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+    ) -> Optional[pd.DataFrame]:
+        """
+        获取单只股票财务指标（Tushare fina_indicator）。
+        需积分权限，详见 https://tushare.pro/document/2?doc_id=79
+        """
+        try:
+            kwargs: Dict = {"ts_code": ts_code}
+            if start_date:
+                kwargs["start_date"] = start_date
+            if end_date:
+                kwargs["end_date"] = end_date
+            df = self.pro.fina_indicator(**kwargs)
+            if df is None or df.empty:
+                return None
+            return df
+        except Exception as e:
+            logger.error(f"获取 {ts_code} fina_indicator 失败: {e}")
+            return None
+
+    def get_fina_indicator_latest_batch(
+        self,
+        ts_codes: List[str],
+        delay: float = 0.35,
+        batch_pause_every: int = 50,
+        batch_pause_seconds: float = 2.0,
+    ) -> pd.DataFrame:
+        """
+        批量拉取多只股票的财务指标，并每只保留「最新报告期」一行。
+
+        fina_indicator 单次仅支持按 ts_code 查询历史，故需循环请求。
+        """
+        import time
+
+        rows: List[pd.Series] = []
+        n = len(ts_codes)
+        for i, ts_code in enumerate(ts_codes, 1):
+            df = self.get_fina_indicator(ts_code)
+            if df is None or df.empty:
+                time.sleep(delay)
+                continue
+            df = df.copy()
+            df["_end"] = pd.to_numeric(df["end_date"], errors="coerce")
+            df["_ann"] = pd.to_numeric(df["ann_date"], errors="coerce")
+            df.sort_values(by=["_end", "_ann"], ascending=[False, False], inplace=True)
+            latest = df.iloc[0].drop(labels=["_end", "_ann"], errors="ignore")
+            rows.append(latest)
+            if i % batch_pause_every == 0:
+                logger.info(f"fina_indicator 进度 {i}/{n}，休眠 {batch_pause_seconds}s...")
+                time.sleep(batch_pause_seconds)
+            time.sleep(delay)
+
+        if not rows:
+            return pd.DataFrame()
+
+        out = pd.DataFrame(rows)
+        # 去掉辅助列若存在
+        for c in ["_end", "_ann"]:
+            if c in out.columns:
+                out.drop(columns=[c], inplace=True)
+        return out

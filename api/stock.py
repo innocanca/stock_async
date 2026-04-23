@@ -4,13 +4,14 @@
 与股票相关的 HTTP 接口。
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 
 from database import StockDatabase
+from query.strategy.query_large_cap_fundamental_compare import LargeCapFundamentalAnalyzer
 from query.strategy.query_low_pe_volume_surge import LowPEVolumeSurgeAnalyzer
 from query.strategy.query_consecutive_yang_lines import ConsecutiveYangLinesAnalyzer
 from query.strategy.query_weekly_bottom_reversal import WeeklyBottomReversalAnalyzer
@@ -19,6 +20,98 @@ from query.strategy.query_smart_portfolio import SmartPortfolioAnalyzer
 from query.strategy.query_daily_bottom_volume_surge import DailyBottomVolumeSurgeAnalyzer
 
 router = APIRouter()
+
+
+@router.get("/stocks_by_market_cap")
+def api_stocks_by_market_cap(
+    min_mv: float = 10000000,
+    main_board_only: bool = False,
+):
+    """
+    列出总市值不低于指定阈值的股票（默认：市值 ≥ 1000 亿）。
+
+    数据来自 Tushare `daily_basic` 最近可用交易日；`total_mv` 单位为**万元**
+    （1000 亿 = 10,000,000 万元）。
+
+    - `min_mv`: 最小总市值（万元）
+    - `main_board_only`: 为 true 时仅沪市/深市主板（60 / 00 开头）
+    """
+    analyzer = LowPEVolumeSurgeAnalyzer()
+    data = analyzer.list_stocks_by_market_cap(
+        min_mv=min_mv,
+        main_board_only=main_board_only,
+    )
+    return {
+        "min_mv": min_mv,
+        "main_board_only": main_board_only,
+        "count": len(data),
+        "data": data,
+    }
+
+
+@router.get("/large_cap_fundamental_compare")
+def api_large_cap_fundamental_compare(
+    min_mv: float = Query(
+        10000000,
+        description="最小总市值（万元），默认 1000 亿 = 10_000_000",
+    ),
+    main_board_only: bool = Query(
+        False,
+        description="为 true 时仅保留沪市/深市主板（60/00 开头）；与 ts_codes 同时使用时仍先按代码过滤",
+    ),
+    ts_codes: Optional[str] = Query(
+        None,
+        description="可选，逗号分隔 ts_code；若指定则只分析这些代码（须在当日 daily_basic 中有数据）",
+    ),
+    fetch_fina: bool = Query(
+        True,
+        description="是否拉取 Tushare fina_indicator（较慢，需约 2000 积分）；为 false 时仅返回估值+行业",
+    ),
+    fina_delay: float = Query(
+        0.35,
+        description="相邻 fina_indicator 请求间隔秒数，略调大可降低限频风险",
+        ge=0.05,
+        le=3.0,
+    ),
+    limit: Optional[int] = Query(
+        None,
+        description="在按市值排序后仅取前 N 只，用于试跑；默认不限制",
+        ge=1,
+    ),
+    include_industry_breakdown: bool = Query(
+        True,
+        description="是否在响应中包含 by_industry 按申万二级行业分组",
+    ),
+):
+    """
+    大市值股票基本面多维度比较：合并 `daily_basic` 估值 + 本地 `stock_basic` 行业 +
+    `fina_indicator` 最新一期财务指标；提供池内分位、行业内分位及简易 quality_score。
+
+    - 金融/非金融混比时指标解释需谨慎，建议按 `by_industry` 同业阅读。
+    - 全量约 200 只时开启 `fetch_fina` 可能需数十秒，可调 `limit` 或 `fetch_fina=false` 试跑。
+    """
+    code_list = None
+    if ts_codes and ts_codes.strip():
+        code_list = [c.strip() for c in ts_codes.split(",") if c.strip()]
+
+    analyzer = LargeCapFundamentalAnalyzer()
+    records, meta = analyzer.compare_to_records(
+        min_mv=min_mv,
+        main_board_only=main_board_only,
+        ts_codes=code_list,
+        fetch_fina=fetch_fina,
+        fina_delay=fina_delay,
+        limit=limit,
+    )
+
+    payload: Dict = {
+        "meta": meta,
+        "count": len(records),
+        "data": records,
+    }
+    if include_industry_breakdown and records:
+        payload["by_industry"] = analyzer.by_industry_from_records(records)
+    return payload
 
 
 @router.get("/large_cap_below_1y_avg_price")

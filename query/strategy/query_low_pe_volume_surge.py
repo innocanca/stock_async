@@ -95,6 +95,73 @@ class LowPEVolumeSurgeAnalyzer:
             logger.error(f"获取估值数据失败: {e}")
             return pd.DataFrame()
 
+    def list_stocks_by_market_cap(
+        self,
+        min_mv: float = 10000000,
+        main_board_only: bool = False,
+    ) -> List[Dict]:
+        """
+        按总市值筛选股票（基于 Tushare daily_basic 最新交易日数据）。
+
+        Args:
+            min_mv: 最小总市值（万元），1000 亿 = 10,000,000 万元
+            main_board_only: 为 True 时仅保留沪市/深市主板（60/00 开头）
+
+        Returns:
+            字典列表，按总市值从高到低排序
+        """
+        logger.info(f"📊 按市值筛选：total_mv>={min_mv} 万元，主板仅={main_board_only}...")
+        df: Optional[pd.DataFrame] = None
+        try:
+            for i in range(5):
+                trade_date = (datetime.now() - timedelta(days=i)).strftime("%Y%m%d")
+                try:
+                    df = self.fetcher.pro.daily_basic(
+                        trade_date=trade_date,
+                        fields="ts_code,trade_date,close,pe_ttm,pb,total_mv",
+                    )
+                    if df is not None and not df.empty:
+                        logger.info(f"   使用 {trade_date} 的 daily_basic，共 {len(df)} 条")
+                        break
+                except Exception as e:
+                    logger.warning(f"   获取 {trade_date} daily_basic 失败: {e}")
+
+            if df is None or df.empty:
+                logger.error("无法获取 daily_basic 估值数据")
+                return []
+
+            if main_board_only:
+                df = df[df["ts_code"].str.match(r"^(60|00)\d{4}\.(SH|SZ)$")]
+                logger.info(f"   主板过滤后: {len(df)} 条")
+
+            df = df[df["total_mv"].notna() & (df["total_mv"] >= min_mv)].copy()
+            df.sort_values(by="total_mv", ascending=False, inplace=True)
+
+            codes = df["ts_code"].tolist()
+            names = self.get_stock_names(codes)
+
+            rows: List[Dict] = []
+            for _, row in df.iterrows():
+                tc = row["ts_code"]
+                tmv = float(row["total_mv"])
+                rows.append(
+                    {
+                        "ts_code": tc,
+                        "name": names.get(tc, ""),
+                        "trade_date": str(row["trade_date"]) if pd.notna(row["trade_date"]) else None,
+                        "close": float(row["close"]) if pd.notna(row["close"]) else None,
+                        "total_mv": tmv,
+                        "total_mv_10k": tmv,
+                        "市值(亿)": round(tmv / 10000, 2),
+                        "pe_ttm": float(row["pe_ttm"]) if pd.notna(row["pe_ttm"]) else None,
+                        "pb": float(row["pb"]) if pd.notna(row["pb"]) else None,
+                    }
+                )
+            return rows
+        except Exception as e:
+            logger.error(f"按市值筛选失败: {e}")
+            return []
+
     def get_weekly_volume_surge(
         self,
         stock_codes: List[str],
