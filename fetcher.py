@@ -7,11 +7,16 @@
 import tushare as ts
 import pandas as pd
 import logging
+import time
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from config import TUSHARE_TOKEN
 from log_config import get_logger
+from tushare_stock_data_registry import (
+    get_tushare_interface,
+    list_tushare_interfaces,
+)
 
 logger = get_logger(__name__)
 
@@ -33,6 +38,324 @@ class StockDataFetcher:
         # 设置tushare token
         ts.set_token(self.token)
         self.pro = ts.pro_api()
+        self.last_interface_error = None
+
+    def _classify_interface_error(self, error_message: str) -> str:
+        """将常见 Tushare 异常归类，便于批量任务做跳过或重试。"""
+        if not error_message:
+            return "unknown"
+        if "没有接口访问权限" in error_message:
+            return "permission_denied"
+        if "每分钟最多访问" in error_message:
+            return "rate_limit"
+        if "必填参数" in error_message:
+            return "missing_param"
+        if "请指定正确的接口名" in error_message:
+            return "invalid_api"
+        return "unknown"
+
+    def get_last_interface_error(self) -> Optional[Dict[str, Any]]:
+        return self.last_interface_error
+
+    def _normalize_common_date_columns(self, df: Optional[pd.DataFrame]) -> Optional[pd.DataFrame]:
+        """尝试将常见日期列转换为 datetime。"""
+        if df is None or df.empty:
+            return df
+
+        common_date_columns = [
+            "trade_date",
+            "ann_date",
+            "f_ann_date",
+            "end_date",
+            "list_date",
+            "delist_date",
+            "record_date",
+            "ex_date",
+            "pay_date",
+            "div_listdate",
+            "imp_ann_date",
+            "base_date",
+            "cal_date",
+            "in_date",
+            "out_date",
+        ]
+        for column in common_date_columns:
+            if column in df.columns:
+                df[column] = pd.to_datetime(df[column], format="%Y%m%d", errors="coerce")
+        return df
+
+    def list_registered_stock_interfaces(
+        self,
+        category: str = None,
+        only_fetchable: bool = False,
+    ) -> List[Dict[str, Any]]:
+        return self.list_registered_interfaces(
+            topic="stock",
+            category=category,
+            only_fetchable=only_fetchable,
+        )
+
+    def list_registered_interfaces(
+        self,
+        topic: str = None,
+        category: str = None,
+        only_fetchable: bool = False,
+    ) -> List[Dict[str, Any]]:
+        """
+        返回已注册的 Tushare 接口。
+
+        Args:
+            topic: 专题，如 stock/etf/index
+            category: 分类名称，如“行情数据”
+            only_fetchable: 是否仅返回当前已接入通用抓取能力的接口
+        """
+        return [
+            interface.to_dict()
+            for interface in list_tushare_interfaces(
+                topic=topic,
+                category=category,
+                only_fetchable=only_fetchable,
+            )
+        ]
+
+    def _fetch_interface_direct(self, interface, clean_params: Dict[str, Any]):
+        if interface.call_style == "pro_bar":
+            return ts.pro_bar(api=self.pro, **clean_params)
+        if interface.call_style == "sdk":
+            sdk_callable = getattr(ts, interface.api_name)
+            return sdk_callable(**clean_params)
+
+        try:
+            return self.pro.query(interface.api_name, **clean_params)
+        except Exception:
+            if hasattr(self.pro, interface.api_name):
+                pro_callable = getattr(self.pro, interface.api_name)
+                return pro_callable(**clean_params)
+            raise
+
+    def _fetch_merged_etf_basic(self, clean_params: Dict[str, Any]):
+        df_etf = self.get_etf_basic(
+            list_status=clean_params.get("list_status", "L"),
+            exchange=clean_params.get("exchange"),
+            mgr=clean_params.get("mgr"),
+            index_code=clean_params.get("index_code"),
+            etf_type=clean_params.get("etf_type"),
+        )
+        df_fund = self.get_fund_basic(
+            market=clean_params.get("market", "E"),
+            status=clean_params.get("list_status", "L"),
+        )
+
+        if (df_etf is None or df_etf.empty) and (df_fund is None or df_fund.empty):
+            return None
+        if df_etf is None or df_etf.empty:
+            combined = df_fund.copy()
+        elif df_fund is None or df_fund.empty:
+            combined = df_etf.copy()
+        else:
+            missing_codes = set(df_fund["ts_code"]) - set(df_etf["ts_code"])
+            df_missing = df_fund[df_fund["ts_code"].isin(missing_codes)].copy()
+            for column in df_etf.columns:
+                if column not in df_missing.columns:
+                    df_missing[column] = None
+            combined = pd.concat([df_etf, df_missing[df_etf.columns]], ignore_index=True)
+
+        if "exchange" in combined.columns and "ts_code" in combined.columns:
+            combined["exchange"] = combined["exchange"].where(
+                pd.notna(combined["exchange"]),
+                combined["ts_code"].apply(
+                    lambda value: "SSE" if str(value).endswith(".SH")
+                    else ("SZSE" if str(value).endswith(".SZ") else None)
+                ),
+            )
+        return combined
+
+    def _resolve_index_code_list(self, clean_params: Dict[str, Any]) -> List[str]:
+        ts_codes = clean_params.pop("ts_codes", None)
+        if isinstance(ts_codes, str):
+            ts_codes = [item.strip() for item in ts_codes.split(",") if item.strip()]
+        if ts_codes:
+            return ts_codes
+        ts_code = clean_params.get("ts_code")
+        if ts_code:
+            return [ts_code]
+
+        index_basic_df = self.get_all_index_basic_data()
+        if index_basic_df is None or index_basic_df.empty or "ts_code" not in index_basic_df.columns:
+            return []
+        code_series = index_basic_df["ts_code"].dropna().astype(str)
+        domestic_codes = code_series[
+            code_series.str.endswith(".SH") | code_series.str.endswith(".SZ")
+        ].unique().tolist()
+        logger.info(f"默认筛选出 {len(domestic_codes)} 个可用于指数日线抓取的 SH/SZ 指数代码")
+        return domestic_codes
+
+    def _fetch_index_daily_by_codes(self, clean_params: Dict[str, Any]):
+        code_list = self._resolve_index_code_list(clean_params)
+        if not code_list:
+            return None
+
+        frames = []
+        for index, ts_code in enumerate(code_list, 1):
+            df = self.get_index_daily(
+                ts_code=ts_code,
+                trade_date=clean_params.get("trade_date"),
+                start_date=clean_params.get("start_date"),
+                end_date=clean_params.get("end_date"),
+            )
+            if df is not None and not df.empty:
+                frames.append(df)
+            if index < len(code_list):
+                time.sleep(0.2)
+
+        if not frames:
+            return None
+        return pd.concat(frames, ignore_index=True).drop_duplicates()
+
+    def _resolve_index_weight_code_list(self, clean_params: Dict[str, Any]) -> List[str]:
+        index_codes = clean_params.pop("index_codes", None)
+        if isinstance(index_codes, str):
+            index_codes = [item.strip() for item in index_codes.split(",") if item.strip()]
+        if index_codes:
+            return index_codes
+
+        index_code = clean_params.get("index_code")
+        if index_code:
+            return [index_code]
+
+        base_params = {}
+        return self._resolve_index_code_list(base_params)
+
+    def _fetch_index_weight_by_codes(self, clean_params: Dict[str, Any]):
+        code_list = self._resolve_index_weight_code_list(clean_params)
+        if not code_list:
+            return None
+
+        frames = []
+        for index, index_code in enumerate(code_list, 1):
+            df = self.get_index_weight(
+                index_code=index_code,
+                trade_date=clean_params.get("trade_date"),
+                start_date=clean_params.get("start_date"),
+                end_date=clean_params.get("end_date"),
+            )
+            if df is not None and not df.empty:
+                frames.append(df)
+            if index < len(code_list):
+                time.sleep(0.2)
+
+        if not frames:
+            return None
+        return pd.concat(frames, ignore_index=True).drop_duplicates()
+
+    def _fetch_index_dailybasic_major(self, clean_params: Dict[str, Any]):
+        ts_codes = clean_params.pop("ts_codes", None)
+        if isinstance(ts_codes, str):
+            ts_codes = [item.strip() for item in ts_codes.split(",") if item.strip()]
+        if not ts_codes:
+            ts_codes = [
+                "000001.SH",
+                "000300.SH",
+                "000905.SH",
+                "000016.SH",
+                "399001.SZ",
+                "399006.SZ",
+            ]
+
+        frames = []
+        for index, ts_code in enumerate(ts_codes, 1):
+            df = self.get_index_dailybasic(
+                ts_code=ts_code,
+                trade_date=clean_params.get("trade_date"),
+                start_date=clean_params.get("start_date"),
+                end_date=clean_params.get("end_date"),
+            )
+            if df is not None and not df.empty:
+                frames.append(df)
+            if index < len(ts_codes):
+                time.sleep(0.2)
+
+        if not frames:
+            return None
+        return pd.concat(frames, ignore_index=True).drop_duplicates()
+
+    def fetch_registered_interface(
+        self,
+        identifier: str,
+        fields: str = None,
+        **params,
+    ) -> Optional[pd.DataFrame]:
+        """
+        按注册表中的接口标识抓取数据。
+
+        Args:
+            identifier: 支持 key、title、api_name 三种形式
+            fields: 可选字段列表
+            **params: 透传给 Tushare 的接口参数
+        """
+        interface = get_tushare_interface(identifier)
+        if interface is None:
+            raise ValueError(f"未找到已注册的 Tushare 接口: {identifier}")
+
+        if interface.status != "implemented":
+            raise ValueError(
+                f"接口 `{interface.title}` 目前仅完成注册，尚未确认可直接调用的 api_name。"
+            )
+
+        clean_params = {
+            key: value
+            for key, value in params.items()
+            if value is not None and value != ""
+        }
+        if fields:
+            clean_params["fields"] = fields
+
+        logger.info(
+            f"正在调用注册接口: {interface.title} "
+            f"(topic={interface.topic}, key={interface.key}, api_name={interface.api_name or interface.call_style})"
+        )
+
+        self.last_interface_error = None
+        try:
+            if interface.fetch_strategy == "etf_basic_merge":
+                df = self._fetch_merged_etf_basic(clean_params)
+            elif interface.fetch_strategy == "index_basic_all_markets":
+                df = self.get_all_index_basic_data()
+            elif interface.fetch_strategy == "index_daily_by_codes":
+                df = self._fetch_index_daily_by_codes(clean_params)
+            elif interface.fetch_strategy == "index_weight_by_codes":
+                df = self._fetch_index_weight_by_codes(clean_params)
+            elif interface.fetch_strategy == "index_dailybasic_major":
+                df = self._fetch_index_dailybasic_major(clean_params)
+            else:
+                df = self._fetch_interface_direct(interface, clean_params)
+
+            if df is None or df.empty:
+                logger.warning(f"接口 {interface.title} 未返回数据")
+                return None
+
+            return self._normalize_common_date_columns(df)
+        except Exception as e:
+            error_message = str(e)
+            self.last_interface_error = {
+                "identifier": interface.key,
+                "type": self._classify_interface_error(error_message),
+                "message": error_message,
+            }
+            logger.error(f"调用注册接口 {interface.title} 失败: {error_message}")
+            return None
+
+    def fetch_registered_stock_interface(
+        self,
+        identifier: str,
+        fields: str = None,
+        **params,
+    ) -> Optional[pd.DataFrame]:
+        return self.fetch_registered_interface(
+            identifier=identifier,
+            fields=fields,
+            **params,
+        )
         
     def get_daily_data(self, ts_code: str, start_date: str = None, 
                       end_date: str = None) -> Optional[pd.DataFrame]:

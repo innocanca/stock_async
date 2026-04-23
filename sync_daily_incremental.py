@@ -18,7 +18,7 @@
 import os
 import sys
 from datetime import datetime, timedelta
-from typing import List
+from typing import List, Tuple
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
@@ -28,6 +28,13 @@ from database import StockDatabase
 from scheduler import DailyDataSyncer, StockDataScheduler
 
 logger = get_logger(__name__)
+
+
+def build_date_window(days_back: int) -> Tuple[str, str]:
+    """按自然日窗口生成 YYYYMMDD 起止日期。"""
+    end_dt = datetime.now()
+    start_dt = end_dt - timedelta(days=days_back)
+    return start_dt.strftime("%Y%m%d"), end_dt.strftime("%Y%m%d")
 
 
 def sync_stock_basic() -> bool:
@@ -97,10 +104,7 @@ def sync_etf_daily_data(days_back: int = 5) -> bool:
     try:
         fetcher = StockDataFetcher()
         with StockDatabase() as db:
-            end_dt = datetime.now()
-            start_dt = end_dt - timedelta(days=days_back)
-            start_date = start_dt.strftime("%Y%m%d")
-            end_date = end_dt.strftime("%Y%m%d")
+            start_date, end_date = build_date_window(days_back)
 
             stats = fetcher.get_all_etf_daily_by_dates_with_batch_insert(
                 start_date=start_date,
@@ -129,6 +133,170 @@ def sync_etf_daily_data(days_back: int = 5) -> bool:
 
     except Exception as e:
         logger.error(f"同步ETF日线数据失败: {e}")
+        return False
+
+
+def sync_etf_basic_data() -> bool:
+    """刷新 ETF 基础信息 `etf_basic`，适合每日或每周 UPSERT 一次。"""
+    logger.info("🔄 开始同步ETF基础信息 etf_basic ...")
+    try:
+        fetcher = StockDataFetcher()
+        df = fetcher.fetch_registered_interface("etf_basic", list_status="L")
+        if df is None or df.empty:
+            logger.warning("⚠️ 未获取到ETF基础信息数据")
+            return False
+
+        with StockDatabase() as db:
+            db.create_etf_basic_table()
+            ok = db.insert_etf_basic(df)
+
+        if ok:
+            logger.info(f"✅ ETF基础信息同步完成，记录数：{len(df)}")
+        else:
+            logger.error("❌ ETF基础信息插入数据库失败")
+        return ok
+    except Exception as e:
+        logger.error(f"同步ETF基础信息失败: {e}")
+        return False
+
+
+def sync_index_basic_data() -> bool:
+    """刷新指数基础信息 `index_basic`。"""
+    logger.info("🔄 开始同步指数基础信息 index_basic ...")
+    try:
+        fetcher = StockDataFetcher()
+        df = fetcher.fetch_registered_interface("index_basic")
+        if df is None or df.empty:
+            logger.warning("⚠️ 未获取到指数基础信息数据")
+            return False
+
+        with StockDatabase() as db:
+            db.create_index_basic_table()
+            ok = db.insert_index_basic(df)
+
+        if ok:
+            logger.info(f"✅ 指数基础信息同步完成，记录数：{len(df)}")
+        else:
+            logger.error("❌ 指数基础信息插入数据库失败")
+        return ok
+    except Exception as e:
+        logger.error(f"同步指数基础信息失败: {e}")
+        return False
+
+
+def sync_index_daily_data(days_back: int = 5) -> bool:
+    """同步最近几天的指数日线 `index_daily`。"""
+    logger.info(f"🔄 开始增量同步指数日线 index_daily （最近 {days_back} 天窗口）...")
+    try:
+        fetcher = StockDataFetcher()
+        start_date, end_date = build_date_window(days_back)
+        df = fetcher.fetch_registered_interface(
+            "index_daily",
+            start_date=start_date,
+            end_date=end_date,
+        )
+        if df is None or df.empty:
+            logger.warning("⚠️ 未获取到指数日线增量数据")
+            return False
+
+        with StockDatabase() as db:
+            db.create_index_daily_table()
+            ok = db.insert_index_daily(df)
+
+        if ok:
+            logger.info(f"✅ 指数日线增量同步完成，记录数：{len(df)}")
+        else:
+            logger.error("❌ 指数日线增量插入失败")
+        return ok
+    except Exception as e:
+        logger.error(f"同步指数日线数据失败: {e}")
+        return False
+
+
+def sync_index_weekly_data(days_back: int = 90) -> bool:
+    """同步最近一段时间的指数周线 `index_weekly`。"""
+    logger.info(f"🔄 开始增量同步指数周线 index_weekly （最近 {days_back} 天窗口）...")
+    try:
+        fetcher = StockDataFetcher()
+        start_date, end_date = build_date_window(days_back)
+        df = fetcher.fetch_registered_interface(
+            "index_weekly",
+            start_date=start_date,
+            end_date=end_date,
+        )
+        if df is None or df.empty:
+            logger.warning("⚠️ 未获取到指数周线增量数据")
+            return False
+
+        with StockDatabase() as db:
+            db.create_index_weekly_table()
+            ok = db.insert_index_weekly(df)
+
+        if ok:
+            logger.info(f"✅ 指数周线增量同步完成，记录数：{len(df)}")
+        else:
+            logger.error("❌ 指数周线增量插入失败")
+        return ok
+    except Exception as e:
+        logger.error(f"同步指数周线数据失败: {e}")
+        return False
+
+
+def sync_index_weight_data(days_back: int = 90) -> bool:
+    """同步最近一段时间的指数成分权重 `index_weight`。"""
+    logger.info(f"🔄 开始增量同步指数成分权重 index_weight （最近 {days_back} 天窗口）...")
+    try:
+        fetcher = StockDataFetcher()
+        start_date, end_date = build_date_window(days_back)
+        df = fetcher.fetch_registered_interface(
+            "index_weight",
+            start_date=start_date,
+            end_date=end_date,
+        )
+        if df is None or df.empty:
+            logger.warning("⚠️ 未获取到指数成分权重增量数据")
+            return False
+
+        with StockDatabase() as db:
+            db.create_index_weight_table()
+            ok = db.insert_index_weight(df)
+
+        if ok:
+            logger.info(f"✅ 指数成分权重增量同步完成，记录数：{len(df)}")
+        else:
+            logger.error("❌ 指数成分权重增量插入失败")
+        return ok
+    except Exception as e:
+        logger.error(f"同步指数成分权重数据失败: {e}")
+        return False
+
+
+def sync_index_dailybasic_data(days_back: int = 5) -> bool:
+    """同步最近几天的大盘指数每日指标 `index_dailybasic`。"""
+    logger.info(f"🔄 开始增量同步大盘指数每日指标 index_dailybasic （最近 {days_back} 天窗口）...")
+    try:
+        fetcher = StockDataFetcher()
+        start_date, end_date = build_date_window(days_back)
+        df = fetcher.fetch_registered_interface(
+            "index_dailybasic",
+            start_date=start_date,
+            end_date=end_date,
+        )
+        if df is None or df.empty:
+            logger.warning("⚠️ 未获取到大盘指数每日指标增量数据")
+            return False
+
+        with StockDatabase() as db:
+            db.create_index_dailybasic_table()
+            ok = db.insert_index_dailybasic(df)
+
+        if ok:
+            logger.info(f"✅ 大盘指数每日指标增量同步完成，记录数：{len(df)}")
+        else:
+            logger.error("❌ 大盘指数每日指标增量插入失败")
+        return ok
+    except Exception as e:
+        logger.error(f"同步大盘指数每日指标失败: {e}")
         return False
 
 
@@ -252,10 +420,27 @@ def main() -> bool:
     ok_basic = sync_stock_basic()
     ok_daily = sync_daily_data()
     ok_weekly = sync_weekly_data(weeks_back=8)
+    ok_etf_basic = sync_etf_basic_data()
     ok_etf_daily = sync_etf_daily_data(days_back=5)
+    ok_index_basic = sync_index_basic_data()
+    ok_index_daily = sync_index_daily_data(days_back=5)
+    ok_index_weekly = sync_index_weekly_data(days_back=90)
+    ok_index_weight = sync_index_weight_data(days_back=90)
+    ok_index_dailybasic = sync_index_dailybasic_data(days_back=5)
     #ok_fin = sync_financial_data()
 
-    total_ok = ok_basic and ok_daily and ok_weekly and ok_etf_daily #and ok_fin
+    total_ok = (
+        ok_basic
+        and ok_daily
+        and ok_weekly
+        and ok_etf_basic
+        and ok_etf_daily
+        and ok_index_basic
+        and ok_index_daily
+        and ok_index_weekly
+        and ok_index_weight
+        and ok_index_dailybasic
+    )  # and ok_fin
 
     duration = datetime.now() - start_time
     logger.info("==============================================")
@@ -263,7 +448,13 @@ def main() -> bool:
     logger.info(f"   股票基础信息     : {'✅' if ok_basic else '❌'}")
     logger.info(f"   日线行情 daily   : {'✅' if ok_daily else '❌'}")
     logger.info(f"   周线行情 weekly  : {'✅' if ok_weekly else '❌'}")
+    logger.info(f"   ETF基础 etf_basic: {'✅' if ok_etf_basic else '❌'}")
     logger.info(f"   ETF日线 etf_daily: {'✅' if ok_etf_daily else '❌'}")
+    logger.info(f"   指数基础         : {'✅' if ok_index_basic else '❌'}")
+    logger.info(f"   指数日线         : {'✅' if ok_index_daily else '❌'}")
+    logger.info(f"   指数周线         : {'✅' if ok_index_weekly else '❌'}")
+    logger.info(f"   指数权重         : {'✅' if ok_index_weight else '❌'}")
+    logger.info(f"   指数每日指标     : {'✅' if ok_index_dailybasic else '❌'}")
     #logger.info(f"   财务&分红数据    : {'✅' if ok_fin else '❌'}")
     logger.info(f"   总耗时           : {duration}")
 

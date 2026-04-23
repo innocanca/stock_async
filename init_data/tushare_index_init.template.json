@@ -1,0 +1,94 @@
+{
+  "global": {
+    "topics": [
+      "index"
+    ],
+    "start_date": "20260101",
+    "end_date": "20260324",
+    "month": "202603",
+    "sample_ts_code": "000001.SZ",
+    "calendar_exchange": "SSE",
+    "table_prefix": "ts_raw",
+    "stop_on_error": false,
+    "to_db": true
+  },
+  "tasks": [
+    {
+      "id": "index_basic",
+      "interface": "index_basic",
+      "topic": "index",
+      "enabled": true,
+      "fields": null,
+      "params": {},
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "index_basic",
+      "unique_keys": "ts_code",
+      "note": "通过多市场循环获取全部指数基本信息。"
+    },
+    {
+      "id": "index_daily",
+      "interface": "index_daily",
+      "topic": "index",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "index_daily",
+      "unique_keys": "ts_code,trade_date",
+      "note": "默认按指数代码列表批量抓取指数日线行情。"
+    },
+    {
+      "id": "index_weekly",
+      "interface": "index_weekly",
+      "topic": "index",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "index_weekly",
+      "unique_keys": "ts_code,trade_date",
+      "note": "按每周最后一个交易日抓取全市场指数周线。"
+    },
+    {
+      "id": "index_weight",
+      "interface": "index_weight",
+      "topic": "index",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "index_weight",
+      "unique_keys": "index_code,con_code,trade_date",
+      "note": "支持指定 index_code，或按时间区间抓取可用指数权重。"
+    },
+    {
+      "id": "index_dailybasic",
+      "interface": "index_dailybasic",
+      "topic": "index",
+      "enabled": true,
+      "fields": null,
+      "params": {
+        "start_date": "20260101",
+        "end_date": "20260324"
+      },
+      "iterate_trade_dates": false,
+      "calendar_exchange": "SSE",
+      "table_name": "index_dailybasic",
+      "unique_keys": "ts_code,trade_date",
+      "note": "默认抓取主要指数列表的大盘每日指标。"
+    }
+  ]
+}
